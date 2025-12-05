@@ -47,12 +47,11 @@ set(PACKAGE_DEPENDENCIES
     yaml-cpp
     )
 
+
 find_package(ament_cmake REQUIRED)
 find_package(message_logger REQUIRED)
 find_package(ethercat_sdk_master REQUIRED)
 find_package(yaml-cpp REQUIRED)
-
-
 ###########
 ## Build ##
 ###########
