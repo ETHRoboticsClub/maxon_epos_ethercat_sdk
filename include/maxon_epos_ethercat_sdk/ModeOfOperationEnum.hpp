@@ -41,8 +41,8 @@ enum class ModeOfOperationEnum : int8_t {
   // ProfiledPositionMode = 1,
   ProfiledVelocityMode = 3,
   HomingMode = 6,
-  // CyclicSynchronousPositionMode = 8,
-  // CyclicSynchronousVelocityMode = 9,
+  CyclicSynchronousPositionMode = 8,
+  CyclicSynchronousVelocityMode = 9,
   CyclicSynchronousTorqueMode = 10,
   CyclicJVPTMode = -64,
   CyclicFreezeMode = -62
