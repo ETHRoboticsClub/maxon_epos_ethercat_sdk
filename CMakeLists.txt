@@ -34,6 +34,8 @@ project(maxon_epos_ethercat_sdk)
 ## Set the C++ standard.
 set(CMAKE_CXX_STANDARD 17)
 
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 ## Enable all compiler warnings and treat them as errors.
 add_compile_options(-Wall -Wextra -Wpedantic)
 
