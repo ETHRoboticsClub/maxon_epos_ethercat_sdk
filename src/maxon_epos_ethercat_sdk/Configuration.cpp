@@ -152,6 +152,10 @@ std::pair<RxPdoTypeEnum, TxPdoTypeEnum> Configuration::getPdoTypeSolution()
         { RxPdoTypeEnum::RxPdoPVM, TxPdoTypeEnum::TxPdoPVM }
       },
       {
+        { ModeOfOperationEnum::CyclicJVPTMode },
+        { RxPdoTypeEnum::RxPdoJVPT, TxPdoTypeEnum::TxPdoJVPT }
+      },
+      {
         { ModeOfOperationEnum::CyclicJVPTMode, ModeOfOperationEnum::CyclicFreezeMode, ModeOfOperationEnum::HomingMode},
         { RxPdoTypeEnum::RxPdoJVPT, TxPdoTypeEnum::TxPdoJVPT }
       },
@@ -205,7 +209,7 @@ bool Configuration::sanityCheck(bool silent) const {
 
       {
         (pdoTypePair.first != RxPdoTypeEnum::NA && pdoTypePair.second != TxPdoTypeEnum::NA),
-        "modes of operation combination allowed"
+        "modes of operation combination allowed, modes of operation: " + std::to_string(modesOfOperation.size()) + " modes of operation, Rx PDO type: " + rxPdoString(pdoTypePair.first) + ", Tx PDO type: " + txPdoString(pdoTypePair.second)
       },
       {
         (driveStateChangeMinTimeout <= driveStateChangeMaxTimeout),
