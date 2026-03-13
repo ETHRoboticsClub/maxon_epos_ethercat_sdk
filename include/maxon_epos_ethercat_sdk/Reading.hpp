@@ -189,7 +189,7 @@ class Reading {
   int32_t demandedJointVelocity_{0};
   int32_t demandedJointCurent_{0};
 
-  // int16_t motorTemperature_{0};
+  int16_t motorTemperature_{0};
   int16_t psuTemperature_{0};
 
   int16_t i2tMotor_{0};
