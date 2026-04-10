@@ -691,9 +691,6 @@ bool Maxon::storeParam() {
 bool Maxon::doHoming() {
   bool success = true;
 
-    // set the homing mwthod via sdo
-    success &= sdoVerifyWrite(OD_HOMING_METHOD, 0x00, false, static_cast<int8_t>(37), configuration_.configRunSdoVerifyTimeout);
-
     // change the operation mode to homing
     // start the homing process by setting the controlword
     // for homing operation start controlword bit 4 -> 1
@@ -709,7 +706,7 @@ bool Maxon::doHoming() {
     bool homing_finished = false;
     uint count = 0;
 
-    while ( !homing_finished && (count < 20)) {
+    while ( !homing_finished && (count < 100)) {
       MELO_INFO_STREAM("homing in progress");
       Reading reading = getReading();
       Statusword status = reading.getStatusword();

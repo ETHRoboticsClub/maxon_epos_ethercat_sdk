@@ -573,6 +573,17 @@ bool Maxon::configParam() {
                                   soft_min_pos_limit,
                                   configuration_.configRunSdoVerifyTimeout);
 
+  // Homing parameters (must be written in pre-op/config phase)
+  configSuccess &= sdoVerifyWrite(OD_HOMING_METHOD, 0x00, false,
+                                  configuration_.homingMethod,
+                                  configuration_.configRunSdoVerifyTimeout);
+  configSuccess &= sdoVerifyWrite(OD_INDEX_HOME_POSITION, 0x00, false,
+                                  configuration_.homingPosition,
+                                  configuration_.configRunSdoVerifyTimeout);
+  configSuccess &= sdoVerifyWrite(OD_INDEX_HOME_OFFSET, 0x00, false,
+                                  configuration_.homingOffset,
+                                  configuration_.configRunSdoVerifyTimeout);
+
 
 
   if (configSuccess) {

@@ -278,6 +278,21 @@ void ConfigurationParser::parseConfiguration(YAML::Node configNode) {
       configuration_.softMinPosLimitSI = softMinPosLimitSI;
     }
 
+    int8_t homingMethod;
+    if (getValueFromFile(hardwareNode, "homing_method", homingMethod)) {
+      configuration_.homingMethod = homingMethod;
+    }
+
+    int32_t homingPosition;
+    if (getValueFromFile(hardwareNode, "homing_position", homingPosition)) {
+      configuration_.homingPosition = homingPosition;
+    }
+
+    int32_t homingOffset;
+    if (getValueFromFile(hardwareNode, "homing_offset", homingOffset)) {
+      configuration_.homingOffset = homingOffset;
+    }
+
   }
 }
 
