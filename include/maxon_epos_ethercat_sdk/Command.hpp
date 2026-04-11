@@ -166,12 +166,6 @@ class Command {
   int32_t targetJointVelocity_{0};
   int32_t targetJointTorque_{0};
 
-  double SI_pos_to_inc{4096 / (2 * M_PI)};
-
-
-
-
-
   std::mutex targetTorqueCommandMutex_;
 
   uint32_t digitalOutputs_{0};

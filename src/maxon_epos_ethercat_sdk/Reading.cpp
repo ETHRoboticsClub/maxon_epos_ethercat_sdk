@@ -122,7 +122,7 @@ double Reading::getDemandPosition() const {
 // poorly and I don't trust it
 
 double Reading::getActualJointPosition() const {
-  return static_cast<double>(actualJointPosition_) / SI_pos_to_inc;
+  return static_cast<double>(actualJointPosition_) * positionFactorIntegerToRad_;
 }
 
 double Reading::getActualJointVelocity() const {
@@ -139,7 +139,7 @@ double Reading::getActualJointCurrent() const {
 
 
 double Reading::getDemandedJointPosition() const {
-  return static_cast<double>(demandedJointPosition_) / SI_pos_to_inc;
+  return static_cast<double>(demandedJointPosition_) * positionFactorIntegerToRad_;
 }
 
 double Reading::getDemandedJointVelocity() const {

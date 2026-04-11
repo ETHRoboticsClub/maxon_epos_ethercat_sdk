@@ -185,7 +185,6 @@ void Command::setVelocityOffset(double velocityOffset) {
 
 void Command::setTargetJointPosition(double targetJointPosition) {
   targetJointPositionUU_ = targetJointPosition;
-  targetJointPosition_ = static_cast<int32_t>( SI_pos_to_inc * targetJointPositionUU_);
 }
 
 void Command::setTargetJointVelocity(double targetJointVelocity) {
@@ -275,10 +274,13 @@ void Command::doUnitConversion() {
     velocityOffset_ = static_cast<int32_t>(velocityFactorConfiguredUnitToRadPerSec_ *
                                            velocityOffsetUU_);
 
-    //Anydrive5 specific joint user unit to RAW conversion hardcoded in here
-    //look ath the anydrive5 sprcific firmware manual for these unit conversions
+    targetJointPosition_ =
+      static_cast<int32_t>(positionFactorRadToInteger_ * targetJointPositionUU_);
+
+    // Anydrive5-specific unit conversions:
+    // position uses the configured encoder resolution factor,
+    // velocity/current/torque follow firmware-specific m-units.
     //velocity in mRpm
-    //Default position unit 4096 counts per revolution
     //Torque in mNm
 }
 

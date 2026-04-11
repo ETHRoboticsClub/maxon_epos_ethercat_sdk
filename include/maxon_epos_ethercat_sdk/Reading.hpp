@@ -103,8 +103,6 @@ class Reading {
   double getI2tMotor() const;
   double getI2tPSU() const;
 
-  double SI_pos_to_inc{4096 / (2 * M_PI)};
-
   /*!
    * Other get methods
    */
