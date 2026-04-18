@@ -689,42 +689,80 @@ bool Maxon::storeParam() {
 
 
 bool Maxon::doHoming() {
+  // Enforce non-zero reference semantics for method 37:
+  // current position after homing is set to Home Position (0x30B0).
+  const int8_t requestedHomingMethod = static_cast<int8_t>(37);
+
+  // Read current raw position and use it as runtime home position offset.
+  // This avoids defining homing_position in YAML when Method 37 is desired.
+  int32_t runtimeHomePosition = 0;
+  if (!sendSdoRead(OD_INDEX_JOINT_POSITION_ACTUAL, 0x00, false, runtimeHomePosition)) {
+    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Failed to read current position (0x6064)."
+                      << " Cannot derive runtime home position for Method 37.");
+    return false;
+  }
+
   bool success = true;
+  success &= sdoVerifyWrite(OD_INDEX_HOME_METHOD, 0x00, false,
+                            requestedHomingMethod,
+                            configuration_.configRunSdoVerifyTimeout);
+  success &= sdoVerifyWrite(OD_INDEX_HOME_POSITION, 0x00, false,
+                            runtimeHomePosition,
+                            configuration_.configRunSdoVerifyTimeout);
 
-    // change the operation mode to homing
-    // start the homing process by setting the controlword
-    // for homing operation start controlword bit 4 -> 1
-    Command command;
-    command.setModeOfOperation(maxon::ModeOfOperationEnum::HomingMode);
-    stageCommand(command);
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  int8_t appliedHomingMethod = 0;
+  int32_t appliedHomePosition = 0;
+  success &= sendSdoRead(OD_INDEX_HOME_METHOD, 0x00, false, appliedHomingMethod);
+  success &= sendSdoRead(OD_INDEX_HOME_POSITION, 0x00, false, appliedHomePosition);
 
-    controlword_.homingOperationStart_ = true;
+  if (!success || appliedHomingMethod != 37 || appliedHomePosition != runtimeHomePosition) {
+    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Failed to apply Method 37 settings. "
+                      << "Applied method=" << static_cast<int>(appliedHomingMethod)
+                      << ", applied home_position(0x30B0)=" << appliedHomePosition
+                      << ", runtime home_position=" << runtimeHomePosition);
+    return false;
+  }
 
-    /// wait for the homing to finish 
+  MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Using Method 37 with 0x30B0="
+                   << appliedHomePosition
+                   << " (captured from current 0x6064). After homing, current position is set to this value.");
 
-    bool homing_finished = false;
-    uint count = 0;
+  // change the operation mode to homing
+  // start the homing process by setting the controlword
+  // for homing operation start controlword bit 4 -> 1
+  Command command;
+  command.setModeOfOperation(maxon::ModeOfOperationEnum::HomingMode);
+  stageCommand(command);
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
-    while ( !homing_finished && (count < 100)) {
-      MELO_INFO_STREAM("homing in progress");
-      Reading reading = getReading();
-      Statusword status = reading.getStatusword();
-      MELO_INFO_STREAM("Statusword:" << status);
-      homing_finished = status.homingFinished();
-      count ++;
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
+  // Ensure a clean rising edge on bit 4 for every homing attempt.
+  controlword_.homingOperationStart_ = false;
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  controlword_.homingOperationStart_ = true;
 
+  /// wait for the homing to finish
+  bool homing_finished = false;
+  uint count = 0;
 
-    if(homing_finished) {
-      MELO_INFO_STREAM("homing finished");
-      return true;
-    } else {
-      MELO_ERROR_STREAM("Maximum number of retries reached");
-      return false;
-    }
-  return false;
+  while (!homing_finished && (count < 100)) {
+    MELO_INFO_STREAM("homing in progress");
+    Reading reading = getReading();
+    Statusword status = reading.getStatusword();
+    MELO_INFO_STREAM("Statusword:" << status);
+    homing_finished = status.homingFinished();
+    count++;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+
+  if (homing_finished) {
+    MELO_INFO_STREAM("homing finished");
+    controlword_.homingOperationStart_ = false;
+    return true;
+  } else {
+    MELO_ERROR_STREAM("Maximum number of retries reached");
+    controlword_.homingOperationStart_ = false;
+    return false;
+  }
 }
 
 bool Maxon::setDriveStateViaSdo(const DriveState& driveState) {
