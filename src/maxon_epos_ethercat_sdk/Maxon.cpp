@@ -415,6 +415,10 @@ bool Maxon::loadConfiguration(const Configuration& configuration) {
   txPdoTypeEnum_ = pdoTypeSolution.second;
   configuration_ = configuration;
 
+  MELO_INFO_STREAM("[maxon_epos_ethercat_sdk] '" << name_
+                                                  << "' gear_ratio="
+                                                  << configuration_.gearRatio);
+
   MELO_INFO_STREAM("[maxon_epos_ethercat_sdk] Sanity check for '" << name_
                                                                   << "':");
   return configuration.sanityCheck();
@@ -549,7 +553,8 @@ double Maxon::getHomeReferenceStateSDO() {
   MELO_INFO_STREAM("Home Reference Position: " << homereference);
   MELO_INFO_STREAM("Home Offset: " << homing_offset);
   MELO_INFO_STREAM("Home Position: " << home_position);
-  return homereference / 4096.0;
+  return homereference /
+         static_cast<double>(configuration_.positionEncoderResolution);
 }
 
 bool Maxon::getSoftLimitsSDO(){

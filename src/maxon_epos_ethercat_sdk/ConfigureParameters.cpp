@@ -531,9 +531,15 @@ bool Maxon::mapPdos(RxPdoTypeEnum rxPdoTypeEnum, TxPdoTypeEnum txPdoTypeEnum) {
 
 bool Maxon::configParam() {
   bool configSuccess = true;
-  //Values to update during the configuration they wont be hardcoded, they will be updated from the configuration file
-  
-  double position_to_inc = 4096  / (2  * M_PI); //This value is the number of increments per revolution
+  // Values to update during the configuration from the loaded yaml file.
+  double position_to_inc =
+      static_cast<double>(configuration_.positionEncoderResolution) /
+      (2 * M_PI);
+
+  MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::configParam] '" << name_
+                   << "' using position_encoder_resolution="
+                   << configuration_.positionEncoderResolution
+                   << ", position_to_inc=" << position_to_inc);
   
   //JVPT related parameters
 
@@ -562,8 +568,10 @@ bool Maxon::configParam() {
 
   //Limit Related Parameters
 
-  int32_t soft_max_pos_limit = static_cast<int32_t> (configuration_.softMaxPosLimitSI * position_to_inc);
-  int32_t soft_min_pos_limit = static_cast<int32_t> (configuration_.softMinPosLimitSI * position_to_inc);
+    int32_t soft_max_pos_limit = static_cast<int32_t>(
+      configuration_.softMaxPosLimitSI * position_to_inc);
+    int32_t soft_min_pos_limit = static_cast<int32_t>(
+      configuration_.softMinPosLimitSI * position_to_inc);
 
   configSuccess &= sdoVerifyWrite(OD_INDEX_SOFT_LIMIT, 0x02, false,
                                   soft_max_pos_limit,
