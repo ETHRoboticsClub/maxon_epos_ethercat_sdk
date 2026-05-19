@@ -161,6 +161,7 @@ class Maxon : public ecat_master::EthercatDevice {
   bool hasRead_{false};
   bool conductStateChange_{false};
   DriveState targetDriveState_{DriveState::NA};
+  DriveState lastLoggedFaultState_{DriveState::NA};
   std::chrono::time_point<std::chrono::steady_clock> driveStateChangeTimePoint_;
   uint16_t numberOfSuccessfulTargetStateReadings_{0};
   std::atomic<bool> stateChangeSuccessful_{false};

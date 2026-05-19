@@ -342,16 +342,26 @@ void Maxon::updateRead() {
   }
 
   // Print warning if drive is in FaultReactionActive state.
-  if (reading_.getDriveState() == DriveState::FaultReactionActive) {
+  const DriveState currentDriveState = reading_.getDriveState();
+  if (currentDriveState == DriveState::FaultReactionActive) {
     MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::updateRead] '"
                       << name_ << "' is in drive state 'FaultReactionActive'");
   }
 
   // Print warning if drive is in Fault state.
-  if (reading_.getDriveState() == DriveState::Fault) {
+  if (currentDriveState == DriveState::Fault) {
     MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::updateRead] '"
                       << name_ << "' is in drive state 'Fault'");
+    // Edge-triggered: read EPOS4 error code (0x603F) once per fault transition.
+    // SDO blocks the bus, so we MUST NOT do it on every cycle.
+    if (lastLoggedFaultState_ != DriveState::Fault) {
+      MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::updateRead] '"
+                        << name_ << "' fault statusword=0x" << std::hex
+                        << reading_.getRawStatusword() << std::dec);
+      printErrorCode();
+    }
   }
+  lastLoggedFaultState_ = currentDriveState;
 }
 //this is a lock safe function already usibg the mutex lock
 void Maxon::stageCommand(const Command& command) {
