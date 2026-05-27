@@ -47,6 +47,10 @@
 #include "maxon_epos_ethercat_sdk/Reading.hpp"
 
 namespace maxon {
+// Decodes an EPOS4 error code (object 0x603F) into a human-readable string.
+// Free function so both the SDK and application code can use it.
+std::string errorCodeToString(uint16_t code);
+
 class Maxon : public ecat_master::EthercatDevice {
  public:
   typedef std::shared_ptr<Maxon> SharedPtr;

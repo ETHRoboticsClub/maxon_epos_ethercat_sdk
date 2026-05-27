@@ -350,7 +350,10 @@ void Maxon::updateRead() {
 
   // Print warning if drive is in Fault state.
   if (currentDriveState == DriveState::Fault) {
-    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::updateRead] '"
+    // Throttled: this runs every cycle while faulted; at high bus rates the
+    // unthrottled version floods the log and buries the one-shot decoded
+    // error-code line emitted by printErrorCode() on the fault edge below.
+    MELO_ERROR_THROTTLE_STREAM(1.0, "[maxon_epos_ethercat_sdk:Maxon::updateRead] '"
                       << name_ << "' is in drive state 'Fault'");
     // Edge-triggered: read EPOS4 error code (0x603F) once per fault transition.
     // SDO blocks the bus, so we MUST NOT do it on every cycle.

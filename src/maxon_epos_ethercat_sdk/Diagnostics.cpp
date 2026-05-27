@@ -30,10 +30,34 @@
 */
 // clang-format on
 
+#include <iomanip>
+
 #include "maxon_epos_ethercat_sdk/Maxon.hpp"
 #include "maxon_epos_ethercat_sdk/ObjectDictionary.hpp"
 
 namespace maxon {
+
+// Decodes the EPOS4 error code read from object 0x603F. Only codes whose
+// meaning was confirmed against the maxon EPOS4 Communication Guide / Firmware
+// Specification (ch. 7 "Error Handling") are mapped; anything else returns an
+// explicit pointer to the spec rather than a silent/empty string. Add more
+// codes here as they are verified against that document.
+std::string errorCodeToString(uint16_t code) {
+  switch (code) {
+    case 0x0000: return "No error";
+    case 0x1000: return "Generic error";
+    case 0x2310: return "Overcurrent error";
+    case 0x3210: return "Overvoltage error";
+    case 0x4210: return "Overtemperature error";
+    case 0x6320: return "Software parameter error";
+    case 0x8130: return "Life-guard / heartbeat error";
+    case 0x8180: return "EtherCAT communication error";
+    case 0x8611: return "Following error";
+    default:
+      return "unmapped code - see EPOS4 Firmware Specification ch.7 (Error Handling)";
+  }
+}
+
 // Print errors
 void Maxon::addErrorToReading(const ErrorType& errorType) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
@@ -42,19 +66,28 @@ void Maxon::addErrorToReading(const ErrorType& errorType) {
 
 /*
 ** Print error code
-** See firmware documentation for meaning
+** Reads object 0x603F, stores it into the reading (so getLastFault()/
+** getFaults() expose the real code to the application - without this addFault()
+** is never called and getLastFault() always returns 0) and logs the decoded
+** meaning. See firmware documentation for the full code table.
 */
 void Maxon::printErrorCode() {
   uint16_t errorcode = 0;
   bool error_read_success =
       sendSdoRead(OD_INDEX_ERROR_CODE, 0x00, false, errorcode);
   if (error_read_success) {
-    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::printErrorCode] "
-                      << "Error code: " << std::hex << errorcode);
+    {
+      std::lock_guard<std::recursive_mutex> lock(readingMutex_);
+      reading_.addFault(errorcode);
+    }
+    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::printErrorCode] '"
+                      << name_ << "' error code 0x" << std::hex << std::setw(4)
+                      << std::setfill('0') << errorcode << std::dec << " - "
+                      << errorCodeToString(errorcode));
   } else {
     MELO_ERROR_STREAM(
-        "[maxon_epos_ethercat_sdk:Maxon::printErrorCode] read error code "
-        "uncessuful.")
+        "[maxon_epos_ethercat_sdk:Maxon::printErrorCode] '"
+        << name_ << "' reading error code (0x603F) unsuccessful.")
   }
 }
 
