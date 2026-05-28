@@ -565,6 +565,23 @@ bool Maxon::configParam() {
                                   jvpt_maximal_integral_value,
                                   configuration_.configRunSdoVerifyTimeout);
 
+  // Current controller gains. Config holds SI units (V/A and V/(A*s)); the
+  // EPOS4 firmware spec stores them as UNSIGNED32 scaled by 1e6 (P, 0x30A0:01)
+  // and 1e3 (I, 0x30A0:02). Defaults 1.17188 V/A and 3906.25 V/(A*s) map to
+  // the spec defaults 1'171'880 and 3'906'250.
+  uint32_t current_p_gain =
+      static_cast<uint32_t>(configuration_.currentPGainSI * 1.0e6);
+  uint32_t current_i_gain =
+      static_cast<uint32_t>(configuration_.currentIGainSI * 1.0e3);
+
+  configSuccess &= sdoVerifyWrite(OD_INDEX_CURRENT_CONTROL_PARAM, 0x01, false,
+                                  current_p_gain,
+                                  configuration_.configRunSdoVerifyTimeout);
+
+  configSuccess &= sdoVerifyWrite(OD_INDEX_CURRENT_CONTROL_PARAM, 0x02, false,
+                                  current_i_gain,
+                                  configuration_.configRunSdoVerifyTimeout);
+
 
   //Limit Related Parameters
 

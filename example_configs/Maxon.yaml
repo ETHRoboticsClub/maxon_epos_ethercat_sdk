@@ -63,3 +63,9 @@ Hardware:
   quick_stop_decel: 1000
   profile_decel: 1000
   follow_error_window: 2000
+
+  # Current controller gains (object 0x30A0). YAML values are in SI units;
+  # the SDK applies the EPOS4 register scaling (x1e6 for P, x1e3 for I) before
+  # the SDO write. The defaults below match the EPOS4 firmware spec defaults.
+  current_p_gain: 5.0        # V/A     (5000 mV/A)        -> 0x30A0:01 = 5'000'000
+  current_i_gain: 7000.0     # V/(A*s) (7000 mV/(A*ms))   -> 0x30A0:02 = 7'000'000

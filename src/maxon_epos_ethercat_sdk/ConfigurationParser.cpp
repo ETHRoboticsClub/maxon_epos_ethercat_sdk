@@ -268,6 +268,20 @@ void ConfigurationParser::parseConfiguration(YAML::Node configNode) {
       configuration_.jvptDGain = jvptDGain;
     }
 
+    // Current controller gains (object 0x30A0). YAML holds SI units:
+    //   current_p_gain in V/A     -> written to 0x30A0:01 as value*1e6 (UNSIGNED32)
+    //   current_i_gain in V/(A*s) -> written to 0x30A0:02 as value*1e3 (UNSIGNED32)
+    // EPOS4 firmware spec defaults: 1.171880 V/A and 3906.250 V/(A*s).
+    double currentPGain;
+    if (getValueFromFile(hardwareNode, "current_p_gain", currentPGain)) {
+      configuration_.currentPGainSI = currentPGain;
+    }
+
+    double currentIGain;
+    if (getValueFromFile(hardwareNode, "current_i_gain", currentIGain)) {
+      configuration_.currentIGainSI = currentIGain;
+    }
+
     double softMaxPosLimitSI;
     if (getValueFromFile(hardwareNode, "soft_max_pos_limit", softMaxPosLimitSI)) {
       configuration_.softMaxPosLimitSI = softMaxPosLimitSI;
