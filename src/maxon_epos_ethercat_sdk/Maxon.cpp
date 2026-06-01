@@ -87,14 +87,43 @@ bool Maxon::startup() {
   // PDO mapping
   success &= mapPdos(rxPdoTypeEnum_, txPdoTypeEnum_);
 
-  // Set Interpolation
+  // Set Interpolation Time Period (0x60C2). The drive's internal interpolator
+  // bridges between cyclic setpoints over this window — it MUST equal the
+  // master's actual cyclic period or inner loops over/undershoot between
+  // setpoints. Previously hardcoded to 0 ms (silent bug); now derived from
+  // configuration_.timeStep so it tracks the YAML cycle automatically.
+  // Encoded as value (sub 0x01, uint8) × 10^exponent (sub 0x02, int8 base 10),
+  // exponent fixed at -3 → milliseconds. Clamped to [1, 255] ms (uint8 range)
+  // with a [WARN] per CLAUDE.md §5 if the configured timeStep falls outside.
+  const double timeStepMs = configuration_.timeStep * 1000.0;
+  const long roundedMs = std::lround(timeStepMs);
+  // CLAUDE.md §5: no "reasonable fallback" exists for timeStep <= 0 — refuse to
+  // start. For timeStep > 255 ms (exotic bench rates) clamp + WARN is OK.
+  if (roundedMs < 1) {
+    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::startup] '" << name_
+        << "': expected timeStep > 0 for 0x60C2 encoding, got " << timeStepMs
+        << " ms. Refusing to start; fix ethercat_master_s.time_step in YAML.");
+    addErrorToReading(ErrorType::ConfigurationError);
+    return false;
+  }
+  if (roundedMs > 255) {
+    MELO_WARN_STREAM("[maxon_epos_ethercat_sdk:Maxon::startup] '" << name_
+        << "': expected timeStep <= 255 ms for 0x60C2 uint8 encoding, got "
+        << timeStepMs << " ms, fallback=255 ms. Drive interpolator window will "
+        "be shorter than master cycle.");
+  }
+  const uint8_t periodValue =
+      static_cast<uint8_t>(std::clamp<long>(roundedMs, 1, 255));
   success &= sdoVerifyWrite(OD_INDEX_INTERPOLATION_TIME_PERIOD, 0x01, false,
-                            static_cast<uint8_t>(0),
+                            periodValue,
                             configuration_.configRunSdoVerifyTimeout);
-
   success &= sdoVerifyWrite(OD_INDEX_INTERPOLATION_TIME_PERIOD, 0x02, false,
                             static_cast<int8_t>(-3),
                             configuration_.configRunSdoVerifyTimeout);
+  MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::startup] '" << name_
+                   << "' 0x60C2 interpolation period set to "
+                   << static_cast<int>(periodValue) << " ms "
+                   << "(timeStep=" << timeStepMs << " ms)");
 
   // Set initial mode of operation
   success &=
@@ -355,13 +384,20 @@ void Maxon::updateRead() {
     // error-code line emitted by printErrorCode() on the fault edge below.
     MELO_ERROR_THROTTLE_STREAM(1.0, "[maxon_epos_ethercat_sdk:Maxon::updateRead] '"
                       << name_ << "' is in drive state 'Fault'");
-    // Edge-triggered: read EPOS4 error code (0x603F) once per fault transition.
-    // SDO blocks the bus, so we MUST NOT do it on every cycle.
+    // Edge-triggered: FLAG the fault transition; the SDO read of 0x603F that
+    // populates lastFault_ happens off the RT path in processPendingFaultLog(),
+    // invoked by the executor's monitorFaultTransitions(). This moves the SDO
+    // from "every fault-edge cycle on the RT worker" to "once per fault edge
+    // on the 50 Hz executor". Note: on a fault edge the worker is still
+    // briefly coupled to the executor's SDO via SOEM's bus contextMutex_ for
+    // the mailbox round-trip (1-3 ms); this is one event per fault, not per
+    // cycle, so the deadline budget at 500 Hz is no longer perpetually blown
+    // when a drive is faulted. The statusword log below is local-only.
     if (lastLoggedFaultState_ != DriveState::Fault) {
       MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::updateRead] '"
                         << name_ << "' fault statusword=0x" << std::hex
                         << reading_.getRawStatusword() << std::dec);
-      printErrorCode();
+      faultEdgePending_.store(true, std::memory_order_release);
     }
   }
   lastLoggedFaultState_ = currentDriveState;

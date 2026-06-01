@@ -151,6 +151,12 @@ class Maxon : public ecat_master::EthercatDevice {
  public:
   void printErrorCode();
   void printDiagnosis();
+  // Consume the fault-edge flag set by updateRead() and do the SDO read of
+  // 0x603F off the RT path. Idempotent: no-op when no fault edge has been
+  // observed since the last call. Call from a NON-RT thread (the executor /
+  // diagnostics thread) — the underlying SDO blocks the EtherCAT mailbox, and
+  // at 500 Hz one inline SDO blows the 2 ms cycle budget. See updateRead().
+  void processPendingFaultLog();
 
  public:
   Configuration configuration_;
@@ -169,6 +175,11 @@ class Maxon : public ecat_master::EthercatDevice {
   std::chrono::time_point<std::chrono::steady_clock> driveStateChangeTimePoint_;
   uint16_t numberOfSuccessfulTargetStateReadings_{0};
   std::atomic<bool> stateChangeSuccessful_{false};
+  // Set by updateRead() on a non-Fault → Fault transition. Consumed by
+  // processPendingFaultLog() from a non-RT thread, which does the SDO read of
+  // 0x603F and populates reading_.lastFault_. Atomic because writer (RT
+  // worker) and reader (executor) are different threads.
+  std::atomic<bool> faultEdgePending_{false};
 
   // Configurable parameters
  protected:
