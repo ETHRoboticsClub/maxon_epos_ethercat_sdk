@@ -80,8 +80,37 @@ bool Maxon::startup() {
   bool success = true;
   success &= bus_->waitForState(soem_interface_rsl::ETHERCAT_SM_STATE::PRE_OP,
                                 address_);
-  // bus_->syncDistributedClock0(address_, true, timeStep_, timeStep_ / 2.f); //
-  // Might not need
+
+  // Distributed Clocks SYNC0 activation. Only run when the bus was configured
+  // for DC (master config flag) AND this specific slave's DC engine was
+  // initialised by ecx_configdc() (hasdc=true). For EPOS4 in JVPT/CSP/CSV at
+  // cyclic rates above ~200 Hz this is what keeps the drive's inner control
+  // loops phase-locked to the master cycle instead of free-running off SM
+  // events — without it, frame-arrival jitter shows up as inner-loop dt
+  // jitter and the EPOS4 firmware raises 0xFF0B "EtherCAT sync error".
+  // SYNC0 shift = cycleTime/2: SYNC0 fires halfway through the cycle so the
+  // slave has time to consume the RxPDO before its application runs.
+  if (bus_->isDistributedClockEnabled()) {
+    if (bus_->hasDistributedClock(static_cast<uint16_t>(address_))) {
+      bus_->syncDistributedClock0(static_cast<uint16_t>(address_), true,
+                                  timeStep_, timeStep_ / 2.0);
+      MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::startup] '" << name_
+                       << "' DC SYNC0 activated: cycle=" << timeStep_ * 1000.0
+                       << " ms, shift=" << timeStep_ * 500.0 << " ms.");
+    } else {
+      // CLAUDE.md §5: bus has DC on but this slave didn't get its DC engine
+      // initialised. No reasonable fallback — Maxon needs DC at high cyclic
+      // rates and silently running without it would mask the real problem.
+      MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::startup] '" << name_
+          << "': expected hasdc=true (bus has distributed_clocks=true), got "
+          "hasdc=false. fallback=refusing to start. Check that the EPOS4 "
+          "firmware supports DC and that ecx_configdc succeeded for this "
+          "slave's address.");
+      addErrorToReading(ErrorType::ConfigurationError);
+      return false;
+    }
+  }
+
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
   // PDO mapping
@@ -91,11 +120,14 @@ bool Maxon::startup() {
   // bridges between cyclic setpoints over this window — it MUST equal the
   // master's actual cyclic period or inner loops over/undershoot between
   // setpoints. Previously hardcoded to 0 ms (silent bug); now derived from
-  // configuration_.timeStep so it tracks the YAML cycle automatically.
+  // the EthercatDevice base class's timeStep_ (set by EthercatMaster from
+  // its own YAML time_step) so it always matches the master cycle and the
+  // DC SYNC0 period above. Note: we use timeStep_ (base member) NOT
+  // configuration_.timeStep — maxon::Configuration has no timeStep field.
   // Encoded as value (sub 0x01, uint8) × 10^exponent (sub 0x02, int8 base 10),
   // exponent fixed at -3 → milliseconds. Clamped to [1, 255] ms (uint8 range)
   // with a [WARN] per CLAUDE.md §5 if the configured timeStep falls outside.
-  const double timeStepMs = configuration_.timeStep * 1000.0;
+  const double timeStepMs = timeStep_ * 1000.0;
   const long roundedMs = std::lround(timeStepMs);
   // CLAUDE.md §5: no "reasonable fallback" exists for timeStep <= 0 — refuse to
   // start. For timeStep > 255 ms (exotic bench rates) clamp + WARN is OK.
@@ -123,7 +155,7 @@ bool Maxon::startup() {
   MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::startup] '" << name_
                    << "' 0x60C2 interpolation period set to "
                    << static_cast<int>(periodValue) << " ms "
-                   << "(timeStep=" << timeStepMs << " ms)");
+                   << "(timeStep_=" << timeStepMs << " ms)");
 
   // Set initial mode of operation
   success &=
