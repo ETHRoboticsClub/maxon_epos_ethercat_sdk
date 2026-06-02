@@ -128,6 +128,33 @@ bool Maxon::startup() {
                    << static_cast<int>(periodValue) << " ms "
                    << "(timeStep_=" << timeStepMs << " ms)");
 
+  // Raise the EtherCAT sync error tolerance (object 0x10F1:02 "Sync Error
+  // Counter Limit", CiA-301 Error settings). The slave's internal counter
+  // increments by +3 on each bus error (late/missed PDO) and decrements by
+  // -1 per clean cycle; when it reaches the limit the slave drops to SAFEOP
+  // with AL status 0x1A and the CiA-402 drive transitions to Fault.
+  //
+  // EPOS4 default = 4, which trips at ~2 consecutive missed cycles - too
+  // tight for sub-ms transient OS jitter at high bus rates. Raising to 10
+  // absorbs ~3 consecutive misses while still catching a genuinely broken
+  // bus (10+ consecutive misses still trips immediately: 10 x 3 = 30 >> 10).
+  //
+  // This is NOT a workaround for sustained cycle overrun - those still need
+  // fixing at the master side (bus_diagnosis: false, isolated worker core).
+  // It only absorbs the brief spikes a 99th-percentile RT system inevitably
+  // produces. Subindex 0x01 ('Local error reaction') is fixed to 1 ('Disable
+  // SYNC Manager') by EPOS4 firmware and is intentionally not written.
+  //
+  // Sources verified: AMK CiA-301 0x10F1 documentation (counter weight 3/1),
+  // EPOS4 Firmware Specification ch. 7 (Error Handling).
+  const uint16_t syncErrorCounterLimit = 10;
+  success &= sdoVerifyWrite(OD_INDEX_ERROR_SETTINGS, 0x02, false,
+                            syncErrorCounterLimit,
+                            configuration_.configRunSdoVerifyTimeout);
+  MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::startup] '" << name_
+                   << "' 0x10F1:02 sync error counter limit set to "
+                   << syncErrorCounterLimit << " (EPOS4 default 4)");
+
   // Set initial mode of operation
   success &=
       sdoVerifyWrite(OD_INDEX_MODES_OF_OPERATION, 0x00, false,
