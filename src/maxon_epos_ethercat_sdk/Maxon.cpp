@@ -80,46 +80,8 @@ bool Maxon::startup() {
   bool success = true;
   success &= bus_->waitForState(soem_interface_rsl::ETHERCAT_SM_STATE::PRE_OP,
                                 address_);
-
-  // Distributed Clocks SYNC0 activation. Three states controlled by two flags:
-  //  - DC off (useDistributedClocks=false): skip entirely; legacy free-run.
-  //  - DC on, SYNC0 off (useDcSync0=false): bus-wide ecx_configdc ran (slaves
-  //    have synchronized clocks to each other) but we do NOT activate SYNC0
-  //    on this slave - it stays SM-event driven. Diagnostic mode for
-  //    isolating SOEM master-DC drift (AL 0x001A) from configdc-level issues.
-  //  - DC on, SYNC0 on (isDcSync0Enabled()=true): activate SYNC0 with
-  //    cycle=timeStep_, shift=timeStep_/2 so SYNC0 fires halfway through the
-  //    cycle (slave consumes RxPDO before its app runs).
-  // hasDistributedClock check is independent: if the bus has DC on but this
-  // slave reports hasdc=false, refuse to start regardless of SYNC0 sub-flag.
-  if (bus_->isDistributedClockEnabled()) {
-    if (bus_->hasDistributedClock(static_cast<uint16_t>(address_))) {
-      if (bus_->isDcSync0Enabled()) {
-        bus_->syncDistributedClock0(static_cast<uint16_t>(address_), true,
-                                    timeStep_, timeStep_ / 2.0);
-        MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::startup] '" << name_
-                         << "' DC SYNC0 activated: cycle=" << timeStep_ * 1000.0
-                         << " ms, shift=" << timeStep_ * 500.0 << " ms.");
-      } else {
-        MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::startup] '" << name_
-                         << "' DC configured (hasdc=true) but SYNC0 NOT activated "
-                         "(dc_sync0=false): slave stays SM-event driven. "
-                         "Diagnostic mode — expect free-run timing tolerance.");
-      }
-    } else {
-      // CLAUDE.md §5: bus has DC on but this slave didn't get its DC engine
-      // initialised. No reasonable fallback — Maxon needs DC at high cyclic
-      // rates and silently running without it would mask the real problem.
-      MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::startup] '" << name_
-          << "': expected hasdc=true (bus has distributed_clocks=true), got "
-          "hasdc=false. fallback=refusing to start. Check that the EPOS4 "
-          "firmware supports DC and that ecx_configdc succeeded for this "
-          "slave's address.");
-      addErrorToReading(ErrorType::ConfigurationError);
-      return false;
-    }
-  }
-
+  // bus_->syncDistributedClock0(address_, true, timeStep_, timeStep_ / 2.f); //
+  // Might not need
   std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
   // PDO mapping
