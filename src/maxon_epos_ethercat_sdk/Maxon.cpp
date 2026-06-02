@@ -81,22 +81,31 @@ bool Maxon::startup() {
   success &= bus_->waitForState(soem_interface_rsl::ETHERCAT_SM_STATE::PRE_OP,
                                 address_);
 
-  // Distributed Clocks SYNC0 activation. Only run when the bus was configured
-  // for DC (master config flag) AND this specific slave's DC engine was
-  // initialised by ecx_configdc() (hasdc=true). For EPOS4 in JVPT/CSP/CSV at
-  // cyclic rates above ~200 Hz this is what keeps the drive's inner control
-  // loops phase-locked to the master cycle instead of free-running off SM
-  // events — without it, frame-arrival jitter shows up as inner-loop dt
-  // jitter and the EPOS4 firmware raises 0xFF0B "EtherCAT sync error".
-  // SYNC0 shift = cycleTime/2: SYNC0 fires halfway through the cycle so the
-  // slave has time to consume the RxPDO before its application runs.
+  // Distributed Clocks SYNC0 activation. Three states controlled by two flags:
+  //  - DC off (useDistributedClocks=false): skip entirely; legacy free-run.
+  //  - DC on, SYNC0 off (useDcSync0=false): bus-wide ecx_configdc ran (slaves
+  //    have synchronized clocks to each other) but we do NOT activate SYNC0
+  //    on this slave - it stays SM-event driven. Diagnostic mode for
+  //    isolating SOEM master-DC drift (AL 0x001A) from configdc-level issues.
+  //  - DC on, SYNC0 on (isDcSync0Enabled()=true): activate SYNC0 with
+  //    cycle=timeStep_, shift=timeStep_/2 so SYNC0 fires halfway through the
+  //    cycle (slave consumes RxPDO before its app runs).
+  // hasDistributedClock check is independent: if the bus has DC on but this
+  // slave reports hasdc=false, refuse to start regardless of SYNC0 sub-flag.
   if (bus_->isDistributedClockEnabled()) {
     if (bus_->hasDistributedClock(static_cast<uint16_t>(address_))) {
-      bus_->syncDistributedClock0(static_cast<uint16_t>(address_), true,
-                                  timeStep_, timeStep_ / 2.0);
-      MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::startup] '" << name_
-                       << "' DC SYNC0 activated: cycle=" << timeStep_ * 1000.0
-                       << " ms, shift=" << timeStep_ * 500.0 << " ms.");
+      if (bus_->isDcSync0Enabled()) {
+        bus_->syncDistributedClock0(static_cast<uint16_t>(address_), true,
+                                    timeStep_, timeStep_ / 2.0);
+        MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::startup] '" << name_
+                         << "' DC SYNC0 activated: cycle=" << timeStep_ * 1000.0
+                         << " ms, shift=" << timeStep_ * 500.0 << " ms.");
+      } else {
+        MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::startup] '" << name_
+                         << "' DC configured (hasdc=true) but SYNC0 NOT activated "
+                         "(dc_sync0=false): slave stays SM-event driven. "
+                         "Diagnostic mode — expect free-run timing tolerance.");
+      }
     } else {
       // CLAUDE.md §5: bus has DC on but this slave didn't get its DC engine
       // initialised. No reasonable fallback — Maxon needs DC at high cyclic
