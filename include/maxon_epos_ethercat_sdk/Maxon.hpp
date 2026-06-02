@@ -101,6 +101,9 @@ class Maxon : public ecat_master::EthercatDevice {
   bool readMaxProfileVelocitySDO();
   bool readVelocityControllerGainSDO();
   bool readJLVPTControllerGainSDO();
+  // Read back and log, in one line per drive, the gains actually stored in the
+  // drive: current (0x30A0), velocity (0x30A2) and JVPT (0x34C6). Diagnostic.
+  bool logControllerGainsSDO();
   bool readMotorDataSDO();
   double readJointStateSDO();
   bool setJointPositionTargetSDO(double jointpos);

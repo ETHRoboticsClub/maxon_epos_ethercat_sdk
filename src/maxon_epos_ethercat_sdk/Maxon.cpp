@@ -552,6 +552,40 @@ bool Maxon::readJLVPTControllerGainSDO(){
   return success;
 }
 
+bool Maxon::logControllerGainsSDO() {
+  // One-line, per-drive read-back of the gains actually stored in the drive,
+  // so the live tuning of every joint is visible at boot. Reminder: the SDK
+  // only WRITES current (0x30A0) and JVPT (0x34C6); the velocity loop (0x30A2)
+  // is never written by this stack, so its values here come straight from the
+  // drive's NVM. Read straight from the OD via SDO (post-configuration).
+  uint32_t cur_p = 0, cur_i = 0;
+  uint32_t vel_p = 0, vel_i = 0;
+  uint32_t jvpt_p = 0, jvpt_i = 0, jvpt_d = 0, jvpt_imax = 0;
+  bool success = true;
+  success &= sendSdoRead(OD_INDEX_CURRENT_CONTROL_PARAM, 0x01, false, cur_p);
+  success &= sendSdoRead(OD_INDEX_CURRENT_CONTROL_PARAM, 0x02, false, cur_i);
+  success &= sendSdoRead(OD_INDEX_VELOCITY_CONTROL_PARAM, 0x01, false, vel_p);
+  success &= sendSdoRead(OD_INDEX_VELOCITY_CONTROL_PARAM, 0x02, false, vel_i);
+  success &= sendSdoRead(OD_INDEX_JVPT_PARAMETERS, 0x01, false, jvpt_p);
+  success &= sendSdoRead(OD_INDEX_JVPT_PARAMETERS, 0x02, false, jvpt_i);
+  success &= sendSdoRead(OD_INDEX_JVPT_PARAMETERS, 0x03, false, jvpt_d);
+  success &= sendSdoRead(OD_INDEX_JVPT_PARAMETERS, 0x04, false, jvpt_imax);
+
+  MELO_INFO_STREAM(
+      "[GainDump] '" << name_ << "' read-back from drive:"
+      << "  Current(0x30A0) P=" << cur_p << " I=" << cur_i
+      << " | Velocity(0x30A2) P=" << vel_p << " I=" << vel_i
+      << " | JVPT(0x34C6) P=" << jvpt_p << " I=" << jvpt_i
+      << " D=" << jvpt_d << " Imax=" << jvpt_imax);
+
+  if (!success) {
+    MELO_WARN_STREAM("[GainDump] '" << name_ << "': one or more gain SDO reads "
+        "failed; values above may be stale/zero. Verify the OD addresses "
+        "(current 0x30A0, velocity 0x30A2, JVPT 0x34C6) against the firmware spec.");
+  }
+  return success;
+}
+
 bool Maxon::readMotorDataSDO() {
   uint32_t nominalCurrent;
   uint32_t outputcurrentlimit;
