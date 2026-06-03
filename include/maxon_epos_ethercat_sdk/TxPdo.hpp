@@ -100,17 +100,13 @@ struct TxPdoJVPT {
   int32_t actualJointVelocity_;
   int32_t actualJointPosition_;
   int32_t actualJointCurrent_;
-  // --- TxPDO trimmed to 5 objects (was 12) to test the "<=8 PDOs/direction"
-  // system-overload hypothesis. These 7 diagnostics are commented out of the
-  // cyclic PDO; read them via SDO if needed. Struct order MUST match the mapping
-  // array in ConfigureParameters.cpp and the parse in Maxon.cpp::updateRead.
-  // int32_t velocityDemand;
-  // int32_t currentDemand;
-  // int32_t positionDemand;
-  // int16_t temeperature_motor;
-  // int16_t temeperature_psu;
-  // uint16_t i2tmotor;
-  // uint16_t i2tpsu;
+  int32_t velocityDemand;
+  int32_t currentDemand;
+  int32_t positionDemand;
+  int16_t temeperature_motor;
+  int16_t temeperature_psu;
+  uint16_t i2tmotor;
+  uint16_t i2tpsu;
 } __attribute__((packed));
 
 

@@ -320,19 +320,15 @@ void Maxon::updateRead() {
       reading_.setActualJointPositionRAW(txPdo.actualJointPosition_);
       reading_.setActualJointVelocityRAW(txPdo.actualJointVelocity_);
       reading_.setActualJointCurrentRAW(txPdo.actualJointCurrent_);
+      reading_.setDemandedJointCurrentRAW(txPdo.currentDemand);
+      reading_.setDemandedJointVelocityRAW(txPdo.velocityDemand);
+      reading_.setMotorTemperatureRAW(txPdo.temeperature_motor);
+      reading_.setI2tMotorRAW(txPdo.i2tmotor);
+      reading_.setPsuTemperatureRAW(txPdo.temeperature_psu);
+      reading_.setI2tPSURAW(txPdo.i2tpsu);
       reading_.setEstJointTorqueRAW(txPdo.estJointTorque_);
-      // TxPDO trimmed to 5 objects (see TxPdo.hpp / ConfigureParameters.cpp):
-      // these diagnostics are no longer in the cyclic PDO, so they are not
-      // parsed here. Their Reading getters return defaults (0) until read via
-      // SDO. Re-enable together with the struct + mapping entries if restored.
-      // reading_.setDemandedJointCurrentRAW(txPdo.currentDemand);
-      // reading_.setDemandedJointVelocityRAW(txPdo.velocityDemand);
-      // reading_.setMotorTemperatureRAW(txPdo.temeperature_motor);
-      // reading_.setI2tMotorRAW(txPdo.i2tmotor);
-      // reading_.setPsuTemperatureRAW(txPdo.temeperature_psu);
-      // reading_.setI2tPSURAW(txPdo.i2tpsu);
-      // reading_.setPositionDemand(txPdo.positionDemand);
-
+      reading_.setPositionDemand(txPdo.positionDemand);
+      
       }
 
       break;
