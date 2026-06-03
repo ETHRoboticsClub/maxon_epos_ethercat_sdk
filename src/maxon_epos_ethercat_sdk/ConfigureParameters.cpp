@@ -418,19 +418,25 @@ bool Maxon::mapPdos(RxPdoTypeEnum rxPdoTypeEnum, TxPdoTypeEnum txPdoTypeEnum) {
                                   configuration_.configRunSdoVerifyTimeout);
 
       // Write objects
-      std::array<uint32_t, 12> objects{
+      // TxPDO trimmed from 12 -> 5 mapped objects to test the "<=8 PDOs per
+      // direction" system-overload hypothesis. The 7 diagnostics below are
+      // commented out of the cyclic PDO (read via SDO if needed). Array SIZE and
+      // order MUST match TxPdoJVPT (TxPdo.hpp) and the parse in
+      // Maxon.cpp::updateRead. NB: array<5> => exactly 5 entries written and the
+      // object count set to 5 (a <12> array with 5 inits would map 7 null objs).
+      std::array<uint32_t, 5> objects{
           (OD_INDEX_STATUSWORD << 16) | (0x00 << 8) | sizeof(uint16_t) * 8,
           (OD_INDEX_JOINT_TORQUE_EST << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
           (OD_INDEX_JOINT_VELOCITY_ACTUAL << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
           (OD_INDEX_JOINT_POSITION_ACTUAL << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
           (OD_INDEX_JOINT_CURRENT_ACTUAL << 16) | (0x01 << 8) | sizeof(int32_t) * 8,
-          (OD_INDEX_VELOCITY_DEMAND << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
-          (OD_INDEX_CURRENT_DEMAND << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
-          (OD_INDEX_POSITION_DEMAND << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
-          (OD_INDEX_TEMPERATURE << 16) | (0x02 << 8) | sizeof(int16_t) * 8,
-          (OD_INDEX_TEMPERATURE << 16) | (0x01 << 8) | sizeof(int16_t) * 8,
-          (OD_INDEX_I2T << 16) | (0x01 << 8) | sizeof(uint16_t) * 8,
-          (OD_INDEX_I2T << 16) | (0x02 << 8) | sizeof(uint16_t) * 8,
+          // (OD_INDEX_VELOCITY_DEMAND << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
+          // (OD_INDEX_CURRENT_DEMAND << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
+          // (OD_INDEX_POSITION_DEMAND << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
+          // (OD_INDEX_TEMPERATURE << 16) | (0x02 << 8) | sizeof(int16_t) * 8,
+          // (OD_INDEX_TEMPERATURE << 16) | (0x01 << 8) | sizeof(int16_t) * 8,
+          // (OD_INDEX_I2T << 16) | (0x01 << 8) | sizeof(uint16_t) * 8,
+          // (OD_INDEX_I2T << 16) | (0x02 << 8) | sizeof(uint16_t) * 8,
       };
 
       subIndex = 0;
