@@ -854,6 +854,31 @@ bool Maxon::doHoming() {
   if (homing_finished) {
     MELO_INFO_STREAM("homing finished");
     controlword_.homingOperationStart_ = false;
+
+    // Apply the drive-level zero offset AFTER homing. Writing Home Offset
+    // (0x3673) at config/pre-op time is masked by the Method-37 homing run:
+    // homing stamps the reported position from Home Position (0x30B0) at the
+    // current spot, overriding the earlier offset (confirmed on the bench:
+    // offset written pre-homing has no effect). Re-writing it here, once homing
+    // has completed, makes it take effect. The Method-37 capture is left intact
+    // (no startup motion); this only shifts the reported coordinate frame so the
+    // drive reports the URDF-aligned zero. homingOffset defaults to 0 -> no-op
+    // for devices without a configured offset.
+    int32_t appliedHomeOffset = 0;
+    bool offsetOk = sdoVerifyWrite(OD_INDEX_HOME_OFFSET, 0x00, false,
+                                   configuration_.homingOffset,
+                                   configuration_.configRunSdoVerifyTimeout);
+    offsetOk &= sendSdoRead(OD_INDEX_HOME_OFFSET, 0x00, false, appliedHomeOffset);
+    if (!offsetOk || appliedHomeOffset != configuration_.homingOffset) {
+      MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Failed to apply "
+                        "post-homing Home Offset (0x3673): requested="
+                        << configuration_.homingOffset << ", read_back="
+                        << appliedHomeOffset);
+      return false;
+    }
+    MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Applied post-homing "
+                     "Home Offset (0x3673)=" << appliedHomeOffset
+                     << " counts (drive-level zero).");
     return true;
   } else {
     MELO_ERROR_STREAM("Maximum number of retries reached");

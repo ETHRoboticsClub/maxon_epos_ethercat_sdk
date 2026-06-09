@@ -31,6 +31,7 @@
 // clang-format on
 
 #pragma once
+#include <cstdint>
 #include <ostream>
 
 namespace maxon {
