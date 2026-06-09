@@ -800,21 +800,28 @@ bool Maxon::storeParam() {
 
 
 bool Maxon::doHoming() {
-  // Absolute-encoder zero calibration — run ONCE, with the joint at its
-  // mechanical calibration pin. (Bring-up calls this only for drives selected
-  // for calibration this run via MAXON_RECAL_DRIVES; see standalone.cpp
-  // homeMaxons(). Non-selected drives keep their stored zero.)
+  // Absolute-encoder reference capture — run with the joint held at its
+  // calibration pin (selected via MAXON_RECAL_DRIVES; see standalone.cpp).
   //
-  // Method 37 ("Actual Position", no motion) records the joint's current
-  // physical spot as the Absolute Home Reference (0x30B5-01) and assigns that
-  // spot the value of Home Position (0x30B0). We source 0x30B0 from the YAML
-  // `homing_offset` (counts): after this runs at the pin, the pin reports
-  // exactly `homing_offset`. 0x30B0 is an ASSIGNMENT, so re-running at the pin
-  // re-anchors to the pin with no drift — unlike the additive Additional Homing
-  // Offset (0x3673), which per the HEJ spec only takes effect after store +
-  // restart and would stack on every run, so it is deliberately left untouched.
+  // Method 37 ("Actual Position") performs NO motion. To keep it a true no-op,
+  // we set Home Position (0x30B0) to the CURRENT reading (0x6064): Method 37
+  // then stamps "current = current", so the reported coordinate does not jump
+  // and the joint stays exactly where it is (delta = 0), as before. This run's
+  // job is only to record the Absolute Home Reference (0x30B5-01) at the pin.
+  //
+  // The drive-level zero offset is NOT written here. It lives in Additional
+  // Homing Offset (0x3673), written at config time (pre-op) from YAML
+  // `homing_offset` and applied after storeParam + restart per the HEJ spec.
+  // Writing 0x3673 while Operation-Enabled is rejected (SDO abort 0x08000022)
+  // and stalls the cyclic bus (working-counter errors), so it is omitted.
   const int8_t requestedHomingMethod = static_cast<int8_t>(37);
-  const int32_t runtimeHomePosition = configuration_.homingOffset;
+
+  int32_t runtimeHomePosition = 0;
+  if (!sendSdoRead(OD_INDEX_JOINT_POSITION_ACTUAL, 0x00, false, runtimeHomePosition)) {
+    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Failed to read current "
+                      "position (0x6064); cannot set no-motion home position for Method 37.");
+    return false;
+  }
 
   bool success = true;
   success &= sdoVerifyWrite(OD_INDEX_HOME_METHOD, 0x00, false,
@@ -833,13 +840,14 @@ bool Maxon::doHoming() {
     MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Failed to apply Method 37 settings. "
                       << "Applied method=" << static_cast<int>(appliedHomingMethod)
                       << ", applied home_position(0x30B0)=" << appliedHomePosition
-                      << ", requested home_position(=homing_offset)=" << runtimeHomePosition);
+                      << ", runtime home_position(=current 0x6064)=" << runtimeHomePosition);
     return false;
   }
 
   MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Using Method 37 with 0x30B0="
                    << appliedHomePosition
-                   << " (from YAML homing_offset). No motion; the pin position will report this value.");
+                   << " (= current position). No motion; the joint stays put (delta=0). "
+                      "Records Absolute Home Reference (0x30B5) at the pin.");
 
   // change the operation mode to homing
   // start the homing process by setting the controlword
