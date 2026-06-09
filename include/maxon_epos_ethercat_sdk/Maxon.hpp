@@ -108,6 +108,10 @@ class Maxon : public ecat_master::EthercatDevice {
   double readJointStateSDO();
   bool setJointPositionTargetSDO(double jointpos);
   double getHomeReferenceStateSDO();
+  // True if the drive is persistently referenced (Absolute Home Reference State
+  // 0x30B5-02 == 1). Used by bring-up to skip homing on an absolute encoder
+  // whose zero was already calibrated and stored to NVM.
+  bool isAbsoluteReferenced();
   bool getSoftLimitsSDO();
   bool getFollowErrorSDO();
   bool readAccelerationLimitsSDO();

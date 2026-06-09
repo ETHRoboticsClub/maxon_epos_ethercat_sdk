@@ -649,6 +649,20 @@ double Maxon::getHomeReferenceStateSDO() {
          static_cast<double>(configuration_.positionEncoderResolution);
 }
 
+bool Maxon::isAbsoluteReferenced() {
+  uint8_t referencedState = 0;
+  if (!sendSdoRead(OD_INDEX_HOME_REFERENCE_STATE, 0x02, false, referencedState)) {
+    // No silent fallback (repo rule 5): announce that the persistent reference
+    // state could not be read and default to "not referenced", so the caller
+    // errs toward (re)calibrating rather than trusting an unknown zero.
+    MELO_WARN_STREAM("[maxon_epos_ethercat_sdk:Maxon::isAbsoluteReferenced] expected="
+                     << "readable Absolute Home Reference State (0x30B5-02), "
+                     << "got=SDO read failure, fallback=treat drive as NOT referenced.");
+    return false;
+  }
+  return referencedState == 1;
+}
+
 bool Maxon::getSoftLimitsSDO(){
   int32_t min_limit;
   int32_t max_limit;
@@ -786,18 +800,21 @@ bool Maxon::storeParam() {
 
 
 bool Maxon::doHoming() {
-  // Enforce non-zero reference semantics for method 37:
-  // current position after homing is set to Home Position (0x30B0).
+  // Absolute-encoder zero calibration — run ONCE, with the joint at its
+  // mechanical calibration pin. (Bring-up calls this only for drives selected
+  // for calibration this run via MAXON_RECAL_DRIVES; see standalone.cpp
+  // homeMaxons(). Non-selected drives keep their stored zero.)
+  //
+  // Method 37 ("Actual Position", no motion) records the joint's current
+  // physical spot as the Absolute Home Reference (0x30B5-01) and assigns that
+  // spot the value of Home Position (0x30B0). We source 0x30B0 from the YAML
+  // `homing_offset` (counts): after this runs at the pin, the pin reports
+  // exactly `homing_offset`. 0x30B0 is an ASSIGNMENT, so re-running at the pin
+  // re-anchors to the pin with no drift — unlike the additive Additional Homing
+  // Offset (0x3673), which per the HEJ spec only takes effect after store +
+  // restart and would stack on every run, so it is deliberately left untouched.
   const int8_t requestedHomingMethod = static_cast<int8_t>(37);
-
-  // Read current raw position and use it as runtime home position offset.
-  // This avoids defining homing_position in YAML when Method 37 is desired.
-  int32_t runtimeHomePosition = 0;
-  if (!sendSdoRead(OD_INDEX_JOINT_POSITION_ACTUAL, 0x00, false, runtimeHomePosition)) {
-    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Failed to read current position (0x6064)."
-                      << " Cannot derive runtime home position for Method 37.");
-    return false;
-  }
+  const int32_t runtimeHomePosition = configuration_.homingOffset;
 
   bool success = true;
   success &= sdoVerifyWrite(OD_INDEX_HOME_METHOD, 0x00, false,
@@ -816,13 +833,13 @@ bool Maxon::doHoming() {
     MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Failed to apply Method 37 settings. "
                       << "Applied method=" << static_cast<int>(appliedHomingMethod)
                       << ", applied home_position(0x30B0)=" << appliedHomePosition
-                      << ", runtime home_position=" << runtimeHomePosition);
+                      << ", requested home_position(=homing_offset)=" << runtimeHomePosition);
     return false;
   }
 
   MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Using Method 37 with 0x30B0="
                    << appliedHomePosition
-                   << " (captured from current 0x6064). After homing, current position is set to this value.");
+                   << " (from YAML homing_offset). No motion; the pin position will report this value.");
 
   // change the operation mode to homing
   // start the homing process by setting the controlword
@@ -855,30 +872,21 @@ bool Maxon::doHoming() {
     MELO_INFO_STREAM("homing finished");
     controlword_.homingOperationStart_ = false;
 
-    // Apply the drive-level zero offset AFTER homing. Writing Home Offset
-    // (0x3673) at config/pre-op time is masked by the Method-37 homing run:
-    // homing stamps the reported position from Home Position (0x30B0) at the
-    // current spot, overriding the earlier offset (confirmed on the bench:
-    // offset written pre-homing has no effect). Re-writing it here, once homing
-    // has completed, makes it take effect. The Method-37 capture is left intact
-    // (no startup motion); this only shifts the reported coordinate frame so the
-    // drive reports the URDF-aligned zero. homingOffset defaults to 0 -> no-op
-    // for devices without a configured offset.
-    int32_t appliedHomeOffset = 0;
-    bool offsetOk = sdoVerifyWrite(OD_INDEX_HOME_OFFSET, 0x00, false,
-                                   configuration_.homingOffset,
-                                   configuration_.configRunSdoVerifyTimeout);
-    offsetOk &= sendSdoRead(OD_INDEX_HOME_OFFSET, 0x00, false, appliedHomeOffset);
-    if (!offsetOk || appliedHomeOffset != configuration_.homingOffset) {
-      MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Failed to apply "
-                        "post-homing Home Offset (0x3673): requested="
-                        << configuration_.homingOffset << ", read_back="
-                        << appliedHomeOffset);
+    // Persist the freshly recorded Absolute Home Reference (0x30B5-01/-02) to
+    // NVM. Per the HEJ firmware spec, an absolute-encoder reference saved with
+    // the persistent parameters needs no homing after the next power-up: the
+    // drive comes up already "referenced" (0x30B5-02 == 1) and the pin-anchored
+    // zero is in effect immediately. WITHOUT this store the reference is lost on
+    // power cycle and the joint would silently re-zero at the wrong spot — so a
+    // store failure is a calibration failure, not a warning to swallow.
+    if (!storeParam()) {
+      MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Homing succeeded but "
+                        "storeParam() (0x1010) failed: Absolute Home Reference will NOT "
+                        "survive a power cycle. Treating calibration as failed.");
       return false;
     }
-    MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Applied post-homing "
-                     "Home Offset (0x3673)=" << appliedHomeOffset
-                     << " counts (drive-level zero).");
+    MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Calibration stored to NVM "
+                     "(0x1010). Drive is now persistently referenced; future boots skip homing.");
     return true;
   } else {
     MELO_ERROR_STREAM("Maximum number of retries reached");
