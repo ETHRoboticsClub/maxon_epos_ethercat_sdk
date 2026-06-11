@@ -83,7 +83,6 @@ class Configuration {
   int8_t homingMethod{37};
   int32_t homingPosition{0};
   int32_t homingOffset{0};
-  bool homingOffsetConfigured{false};  // true ONLY if YAML provided homing_offset; gates homing
 
   // ANYDRIVE5 specific setings
 
