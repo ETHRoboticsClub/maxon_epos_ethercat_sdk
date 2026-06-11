@@ -148,7 +148,3 @@
 //homing parameters
 
 #define OD_HOMING_METHOD (0x6098)
-
-//store param
-
-#define OD_STORE_PARAM (0x1010)

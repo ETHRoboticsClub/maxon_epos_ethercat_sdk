@@ -123,7 +123,6 @@ class Maxon : public ecat_master::EthercatDevice {
   //homing
 
   bool doHoming();
-  bool storeParam();
 
 
  protected:
