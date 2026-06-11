@@ -305,6 +305,7 @@ void ConfigurationParser::parseConfiguration(YAML::Node configNode) {
     int32_t homingOffset;
     if (getValueFromFile(hardwareNode, "homing_offset", homingOffset)) {
       configuration_.homingOffset = homingOffset;
+      configuration_.homingOffsetConfigured = true;
     }
 
   }

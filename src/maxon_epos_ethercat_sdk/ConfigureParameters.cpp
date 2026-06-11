@@ -604,16 +604,24 @@ bool Maxon::configParam() {
                                   soft_min_pos_limit,
                                   configuration_.configRunSdoVerifyTimeout);
 
-  // Homing parameters (must be written in pre-op/config phase)
-  configSuccess &= sdoVerifyWrite(OD_HOMING_METHOD, 0x00, false,
-                                  configuration_.homingMethod,
-                                  configuration_.configRunSdoVerifyTimeout);
-  configSuccess &= sdoVerifyWrite(OD_INDEX_HOME_POSITION, 0x00, false,
-                                  configuration_.homingPosition,
-                                  configuration_.configRunSdoVerifyTimeout);
-  configSuccess &= sdoVerifyWrite(OD_INDEX_HOME_OFFSET, 0x00, false,
-                                  configuration_.homingOffset,
-                                  configuration_.configRunSdoVerifyTimeout);
+  // Homing parameters (must be written in pre-op/config phase). Written ONLY when
+  // the YAML defines homing_offset. An unconfigured drive gets NO homing writes at
+  // all (not even 0): 0x6098/0x30B0/0x3673 are left exactly as the drive holds
+  // them, so its zero is never touched (homeMaxons() likewise skips its homing).
+  if (configuration_.homingOffsetConfigured) {
+    configSuccess &= sdoVerifyWrite(OD_HOMING_METHOD, 0x00, false,
+                                    configuration_.homingMethod,
+                                    configuration_.configRunSdoVerifyTimeout);
+    configSuccess &= sdoVerifyWrite(OD_INDEX_HOME_POSITION, 0x00, false,
+                                    configuration_.homingPosition,
+                                    configuration_.configRunSdoVerifyTimeout);
+    configSuccess &= sdoVerifyWrite(OD_INDEX_HOME_OFFSET, 0x00, false,
+                                    configuration_.homingOffset,
+                                    configuration_.configRunSdoVerifyTimeout);
+  } else {
+    MELO_INFO("[ConfigureParameters] homing_offset not set in YAML — skipping all "
+              "homing-parameter writes (0x6098/0x30B0/0x3673); drive zero untouched.");
+  }
 
 
 
