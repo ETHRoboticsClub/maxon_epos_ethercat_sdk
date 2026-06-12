@@ -779,25 +779,63 @@ bool Maxon::getConfigurationSDO(){
 
 
 bool Maxon::storeParam() {
-  //the signature for saving is 0x65766173
-  uint32_t signature = static_cast<uint32_t>(0x65766173);
-  return sdoVerifyWrite(OD_STORE_PARAM, 0x01, false, signature);
+  // CiA301 "save all parameters": write the ASCII "save" signature (0x65766173)
+  // to 0x1010:01. Use a PLAIN SDO write — NOT sdoVerifyWrite — because reading
+  // 0x1010:01 back returns the save-capability bitfield (bit0=1, i.e. 0x1), never
+  // the signature, so verify-by-readback always reports a false failure even when
+  // the save succeeded. The drive withholds the SDO download response until the
+  // NVM write completes, so a successful sendSdoWrite means the save is done.
+  const uint32_t signature = static_cast<uint32_t>(0x65766173);
+  return sendSdoWrite(OD_STORE_PARAM, 0x01, false, signature);
 }
 
 
 bool Maxon::doHoming() {
-  // Enforce non-zero reference semantics for method 37:
-  // current position after homing is set to Home Position (0x30B0).
+  // Method 37 ("Actual position") sets the reported position (0x6064) to the
+  // Home Position (0x30B0) at the joint's current physical spot — it performs NO
+  // motion. We exploit that to apply the URDF zero through the ONLY object the
+  // firmware actually honours here (0x30B0): writing
+  //     0x30B0 = current_raw - homingOffset
+  // makes Method 37 stamp 0x6064 := 0x30B0, after which the mapping is
+  //     reported = raw - homingOffset   (for ALL positions, not just this spot).
+  // `homingOffset` (YAML `homing_offset`, counts) is the raw encoder reading at
+  // the URDF reference pose, P_ref, from measure_drive_offsets.py. At the
+  // reference pose raw == P_ref == homingOffset, so the joint reports ~0. This
+  // is jig-free (works regardless of the physical pose during homing) and needs
+  // NO NVM store / power-cycle — the drive-level Home Offset (0x3673) is NOT used
+  // because Method 37 ignores it on this firmware.
   const int8_t requestedHomingMethod = static_cast<int8_t>(37);
 
-  // Read current raw position and use it as runtime home position offset.
-  // This avoids defining homing_position in YAML when Method 37 is desired.
-  int32_t runtimeHomePosition = 0;
-  if (!sendSdoRead(OD_INDEX_JOINT_POSITION_ACTUAL, 0x00, false, runtimeHomePosition)) {
+  // GUARD against double-applying the offset on a warm restart. The Method-37
+  // coordinate shift lives in the DRIVE and survives program restarts (only a
+  // power-cycle clears it). If we re-homed unconditionally, 0x6064 would already
+  // report raw - offset, and subtracting again would walk the zero off by
+  // another homing_offset on every restart. The caller put the drive in
+  // HomingMode >200 ms ago, so statusword bit 12 ("homing attained") is valid
+  // here: set means a homing already ran this power cycle -> keep the existing
+  // frame and skip. (This also avoids the stale-bit-12 race in the completion
+  // poll below, which can only trigger when bit 12 starts out set.)
+  {
+    Statusword entryStatus = getReading().getStatusword();
+    if (entryStatus.homingFinished()) {
+      MELO_WARN_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] '" << name_
+                       << "': expected=unhomed drive (fresh power-up), got=homing-attained "
+                       "already set (warm restart), fallback=SKIP re-zero, keep the existing "
+                       "coordinate frame. Power-cycle the drives to apply a changed YAML "
+                       "homing_offset.");
+      return true;
+    }
+  }
+
+  // Read current raw position (0x6064); the runtime home position written to
+  // 0x30B0 is this minus the YAML offset (P_ref).
+  int32_t currentRaw = 0;
+  if (!sendSdoRead(OD_INDEX_JOINT_POSITION_ACTUAL, 0x00, false, currentRaw)) {
     MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Failed to read current position (0x6064)."
                       << " Cannot derive runtime home position for Method 37.");
     return false;
   }
+  const int32_t runtimeHomePosition = currentRaw - configuration_.homingOffset;
 
   bool success = true;
   success &= sdoVerifyWrite(OD_INDEX_HOME_METHOD, 0x00, false,
@@ -821,8 +859,9 @@ bool Maxon::doHoming() {
   }
 
   MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Using Method 37 with 0x30B0="
-                   << appliedHomePosition
-                   << " (captured from current 0x6064). After homing, current position is set to this value.");
+                   << appliedHomePosition << " (= current raw " << currentRaw
+                   << " - homing_offset " << configuration_.homingOffset
+                   << "). No motion; after homing the joint reports raw - homing_offset.");
 
   // change the operation mode to homing
   // start the homing process by setting the controlword
