@@ -236,6 +236,11 @@ void Maxon::updateWrite() {
         rxPdo.modeOfOperation_ = static_cast<int8_t>(modeOfOperation_);
 
       }
+      // Software position limit: enforce the configured soft window on the
+      // commanded joint position before it reaches the drive. No-op when the
+      // window is disabled (max <= min). See clampJointPositionToSoftLimits.
+      rxPdo.targetJointPosition_ =
+          clampJointPositionToSoftLimits(rxPdo.targetJointPosition_);
       // actually writing to the hardware
       bus_->writeRxPdo(address_, rxPdo);
       break;
@@ -263,6 +268,73 @@ void Maxon::updateWrite() {
           << name_ << "'");
       addErrorToReading(ErrorType::RxPdoTypeError);
   }
+}
+
+int32_t Maxon::clampJointPositionToSoftLimits(int32_t targetJointPositionRaw) {
+  const double softMinSI = configuration_.softMinPosLimitSI;
+  const double softMaxSI = configuration_.softMaxPosLimitSI;
+
+  // Reject a non-finite config (NaN/inf from a bad YAML) BEFORE the cast below:
+  // casting a non-finite double to int is undefined behaviour, and this runs on
+  // the RT path. Treat as "disabled" and pass through, logged once (no silent
+  // fallback — CLAUDE.md §5).
+  if (!std::isfinite(softMinSI) || !std::isfinite(softMaxSI)) {
+    if (!softLimitConfigInvalidLogged_) {
+      MELO_WARN_STREAM(
+          "[maxon_epos_ethercat_sdk:Maxon::clampJointPositionToSoftLimits] '"
+          << name_ << "': non-finite soft position limit (min=" << softMinSI
+          << ", max=" << softMaxSI << "); soft limit DISABLED for this drive.");
+      softLimitConfigInvalidLogged_ = true;
+    }
+    return targetJointPositionRaw;
+  }
+
+  // Convert the configured soft window (joint radians) to raw encoder increments
+  // with the SAME factor the command path uses (positionEncoderResolution / 2*pi,
+  // see stageCommand()), so the limit and the commanded position share one frame.
+  const double positionFactorRadToInteger =
+      static_cast<double>(configuration_.positionEncoderResolution) / (2.0 * M_PI);
+
+  // Saturate to int32 range before casting (out-of-range double -> int is also
+  // UB). A window wider than int32 increments is effectively unbounded.
+  constexpr double kInt32MaxD = 2147483647.0;
+  constexpr double kInt32MinD = -2147483648.0;
+  auto toSaturatedInc = [&](double radValue) -> int32_t {
+    double inc = radValue * positionFactorRadToInteger;
+    if (inc > kInt32MaxD) inc = kInt32MaxD;
+    else if (inc < kInt32MinD) inc = kInt32MinD;
+    return static_cast<int32_t>(inc);
+  };
+  const int32_t minInc = toSaturatedInc(softMinSI);
+  const int32_t maxInc = toSaturatedInc(softMaxSI);
+
+  // Degenerate / disabled window (covers the [0,0] default): pass through.
+  if (maxInc <= minInc) {
+    return targetJointPositionRaw;
+  }
+
+  int32_t clamped = targetJointPositionRaw;
+  if (clamped > maxInc) {
+    clamped = maxInc;
+  } else if (clamped < minInc) {
+    clamped = minInc;
+  }
+
+  const bool clamping = (clamped != targetJointPositionRaw);
+  if (clamping && !softLimitClampActive_) {
+    MELO_WARN_STREAM(
+        "[maxon_epos_ethercat_sdk:Maxon::clampJointPositionToSoftLimits] '"
+        << name_ << "': commanded joint position " << targetJointPositionRaw
+        << " inc left soft window [" << minInc << ", " << maxInc
+        << "] inc; clamping to " << clamped << " inc.");
+  } else if (!clamping && softLimitClampActive_) {
+    MELO_INFO_STREAM(
+        "[maxon_epos_ethercat_sdk:Maxon::clampJointPositionToSoftLimits] '"
+        << name_ << "': commanded joint position back inside soft window ["
+        << minInc << ", " << maxInc << "] inc.");
+  }
+  softLimitClampActive_ = clamping;
+  return clamped;
 }
 
 void Maxon::updateRead() {

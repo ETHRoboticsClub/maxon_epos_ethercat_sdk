@@ -140,6 +140,18 @@ class Maxon : public ecat_master::EthercatDevice {
       const DriveState& currentDriveState);
   void autoConfigurePdoSizes();
 
+  // Software position limit — command-frame enforcement for JVPT mode.
+  // Clamps a commanded joint position (raw encoder increments) to the configured
+  // soft window [softMinPosLimitSI, softMaxPosLimitSI]. JVPT is a manufacturer-
+  // specific mode (ModeOfOperationEnum = -64) whose honoring of the drive's
+  // CiA-402 software position limit (0x607D) is undocumented, so we enforce here
+  // in the SDK, in the same joint-radian frame the limits are authored in (which
+  // also sidesteps the post-homing 0x30B0 frame shift). A degenerate window
+  // (max <= min, e.g. the [0,0] default) means "disabled" and the target passes
+  // through unchanged. NOTE: this gates the position setpoint only — the JVPT
+  // feedforward torque is not limited here.
+  int32_t clampJointPositionToSoftLimits(int32_t targetJointPositionRaw);
+
   uint16_t getTxPdoSize();
   uint16_t getRxPdoSize();
 
@@ -183,6 +195,13 @@ class Maxon : public ecat_master::EthercatDevice {
   // 0x603F and populates reading_.lastFault_. Atomic because writer (RT
   // worker) and reader (executor) are different threads.
   std::atomic<bool> faultEdgePending_{false};
+
+  // Rising/falling-edge latch for clampJointPositionToSoftLimits() so the [WARN]
+  // fires once when the command enters the clamped region and once when it
+  // returns inside the window — not every RT cycle.
+  bool softLimitClampActive_{false};
+  // Latch so a non-finite soft-limit config is reported once, not every cycle.
+  bool softLimitConfigInvalidLogged_{false};
 
   // Configurable parameters
  protected:
