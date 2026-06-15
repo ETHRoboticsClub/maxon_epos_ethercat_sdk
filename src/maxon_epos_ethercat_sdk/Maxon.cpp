@@ -892,18 +892,9 @@ bool Maxon::doHoming() {
   // `homingOffset` (YAML `homing_offset`, counts) is the raw encoder reading at
   // the URDF reference pose, P_ref, from measure_drive_offsets.py. At the
   // reference pose raw == P_ref == homingOffset, so the joint reports ~0. This
-  // is jig-free (works regardless of the physical pose during homing). The
-  // drive-level Home Offset (0x3673) is NOT used because Method 37 ignores it on
-  // this firmware.
-  //
-  // PERSISTENCE: doHoming() itself performs NO NVM store. But completing Method
-  // 37 records the Absolute Home Reference (0x30B5:01) and sets its state
-  // (0x30B5:02) in drive RAM. If the caller later commits with storeParam()
-  // (0x1010, run in SAFE-OP — see standalone.cpp), that reference persists across
-  // a power-cycle and the drive boots pre-referenced, so a future bring-up can
-  // skip re-homing (see isAbsoluteReferenced() / homeMaxons()). Absent that
-  // store, the zero is purely the volatile shift above and is re-derived by
-  // re-running doHoming() every boot.
+  // is jig-free (works regardless of the physical pose during homing) and needs
+  // NO NVM store / power-cycle — the drive-level Home Offset (0x3673) is NOT used
+  // because Method 37 ignores it on this firmware.
   const int8_t requestedHomingMethod = static_cast<int8_t>(37);
 
   // GUARD against double-applying the offset on a warm restart. The Method-37
