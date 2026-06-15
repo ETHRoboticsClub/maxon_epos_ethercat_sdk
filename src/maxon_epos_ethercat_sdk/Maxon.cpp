@@ -721,6 +721,25 @@ double Maxon::getHomeReferenceStateSDO() {
          static_cast<double>(configuration_.positionEncoderResolution);
 }
 
+bool Maxon::isAbsoluteReferenced() {
+  // Absolute Home Reference State (0x30B5:02). The firmware sets this to 1 once
+  // an absolute sensor is the main feedback AND a homing has completed; if the
+  // parameters were persisted (storeParam -> 0x1010), it stays 1 across a
+  // power-cycle and the drive boots pre-referenced (no homing needed). We use
+  // it as the boot-time "skip re-home" predicate.
+  uint8_t homeRefState = 0x00;
+  if (!sendSdoRead(OD_INDEX_HOME_REFERENCE_STATE, 0x02, false, homeRefState)) {
+    // No silent fallback (CLAUDE.md rule 5): a failed read must NOT be treated
+    // as referenced, or we would skip homing and run on an unknown zero.
+    MELO_WARN_STREAM("[maxon_epos_ethercat_sdk:Maxon::isAbsoluteReferenced] '" << name_
+                     << "': expected=read of 0x30B5:02 (Abs Home Reference State) OK, "
+                     "got=SDO read failure, fallback=treat as NOT referenced -> drive "
+                     "will be re-homed (or bring-up aborts if not selected for recal).");
+    return false;
+  }
+  return homeRefState == 1;
+}
+
 bool Maxon::getSoftLimitsSDO(){
   int32_t min_limit;
   int32_t max_limit;
@@ -873,9 +892,18 @@ bool Maxon::doHoming() {
   // `homingOffset` (YAML `homing_offset`, counts) is the raw encoder reading at
   // the URDF reference pose, P_ref, from measure_drive_offsets.py. At the
   // reference pose raw == P_ref == homingOffset, so the joint reports ~0. This
-  // is jig-free (works regardless of the physical pose during homing) and needs
-  // NO NVM store / power-cycle — the drive-level Home Offset (0x3673) is NOT used
-  // because Method 37 ignores it on this firmware.
+  // is jig-free (works regardless of the physical pose during homing). The
+  // drive-level Home Offset (0x3673) is NOT used because Method 37 ignores it on
+  // this firmware.
+  //
+  // PERSISTENCE: doHoming() itself performs NO NVM store. But completing Method
+  // 37 records the Absolute Home Reference (0x30B5:01) and sets its state
+  // (0x30B5:02) in drive RAM. If the caller later commits with storeParam()
+  // (0x1010, run in SAFE-OP — see standalone.cpp), that reference persists across
+  // a power-cycle and the drive boots pre-referenced, so a future bring-up can
+  // skip re-homing (see isAbsoluteReferenced() / homeMaxons()). Absent that
+  // store, the zero is purely the volatile shift above and is re-derived by
+  // re-running doHoming() every boot.
   const int8_t requestedHomingMethod = static_cast<int8_t>(37);
 
   // GUARD against double-applying the offset on a warm restart. The Method-37
