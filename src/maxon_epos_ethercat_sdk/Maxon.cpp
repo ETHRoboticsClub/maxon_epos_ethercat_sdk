@@ -721,25 +721,6 @@ double Maxon::getHomeReferenceStateSDO() {
          static_cast<double>(configuration_.positionEncoderResolution);
 }
 
-bool Maxon::isAbsoluteReferenced() {
-  // Absolute Home Reference State (0x30B5:02). The firmware sets this to 1 once
-  // an absolute sensor is the main feedback AND a homing has completed; if the
-  // parameters were persisted (storeParam -> 0x1010), it stays 1 across a
-  // power-cycle and the drive boots pre-referenced (no homing needed). We use
-  // it as the boot-time "skip re-home" predicate.
-  uint8_t homeRefState = 0x00;
-  if (!sendSdoRead(OD_INDEX_HOME_REFERENCE_STATE, 0x02, false, homeRefState)) {
-    // No silent fallback (CLAUDE.md rule 5): a failed read must NOT be treated
-    // as referenced, or we would skip homing and run on an unknown zero.
-    MELO_WARN_STREAM("[maxon_epos_ethercat_sdk:Maxon::isAbsoluteReferenced] '" << name_
-                     << "': expected=read of 0x30B5:02 (Abs Home Reference State) OK, "
-                     "got=SDO read failure, fallback=treat as NOT referenced -> drive "
-                     "will be re-homed (or bring-up aborts if not selected for recal).");
-    return false;
-  }
-  return homeRefState == 1;
-}
-
 bool Maxon::getSoftLimitsSDO(){
   int32_t min_limit;
   int32_t max_limit;

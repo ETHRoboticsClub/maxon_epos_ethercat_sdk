@@ -108,10 +108,6 @@ class Maxon : public ecat_master::EthercatDevice {
   double readJointStateSDO();
   bool setJointPositionTargetSDO(double jointpos);
   double getHomeReferenceStateSDO();
-  // Reads 0x30B5:02 (Abs Home Reference State); true iff the read succeeds and
-  // the drive reports an absolute reference is present (boot-time skip-re-home
-  // predicate). WARN + false on read failure (never assume referenced).
-  bool isAbsoluteReferenced();
   bool getSoftLimitsSDO();
   bool getFollowErrorSDO();
   bool readAccelerationLimitsSDO();
