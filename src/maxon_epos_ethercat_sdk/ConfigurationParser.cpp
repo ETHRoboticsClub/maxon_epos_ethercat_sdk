@@ -268,6 +268,14 @@ void ConfigurationParser::parseConfiguration(YAML::Node configNode) {
       configuration_.jvptDGain = jvptDGain;
     }
 
+    // Optional: raw JVPT D gain used by the DAMPING e-stop (P->0). Absent key
+    // keeps the struct default (100); configParam() logs the effective value so
+    // the per-joint choice is visible at boot.
+    double jvptDampingDGain;
+    if (getValueFromFile(hardwareNode, "JVPT_damping_D_gain", jvptDampingDGain)) {
+      configuration_.jvptDampingDGain = jvptDampingDGain;
+    }
+
     // Current controller gains (object 0x30A0). YAML holds SI units:
     //   current_p_gain in V/A     -> written to 0x30A0:01 as value*1e6 (UNSIGNED32)
     //   current_i_gain in V/(A*s) -> written to 0x30A0:02 as value*1e3 (UNSIGNED32)

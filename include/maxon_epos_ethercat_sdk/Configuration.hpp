@@ -90,6 +90,10 @@ class Configuration {
   double jvptPGain{0};
   double jvptIGain{0};
   double jvptDGain{0};
+  // Raw JVPT D gain (0x34C6:03) applied at runtime by the DAMPING e-stop, when
+  // P (0x34C6:01) is driven to 0 so the joint goes limp-but-damped and collapses
+  // under gravity. Per-joint tunable; default 100 (heavier limbs may want more).
+  double jvptDampingDGain{100};
 
   double softMaxPosLimitSI{0};
   double softMinPosLimitSI{0};

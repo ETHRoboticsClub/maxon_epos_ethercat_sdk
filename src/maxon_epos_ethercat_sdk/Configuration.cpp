@@ -218,6 +218,13 @@ bool Configuration::sanityCheck(bool silent) const {
       {
         (softMaxPosLimitSI == 0 && softMinPosLimitSI == 0),
         "soft position limits are not used"
+      },
+      {
+        // Written raw to 0x34C6:03 as UNSIGNED32 by the DAMPING e-stop. A
+        // negative value would wrap to a huge gain (violent damping); cap the
+        // upper bound generously (100x a typical D=10000) to catch garbage.
+        (jvptDampingDGain >= 0.0 && jvptDampingDGain <= 1.0e6),
+        "JVPT_damping_D_gain in [0, 1e6]"
       }
   };
   // clang-format on

@@ -555,6 +555,15 @@ bool Maxon::configParam() {
 
   uint32_t jvpt_maximal_integral_value = static_cast<uint32_t> (configuration_.maxTorqueSI * 1000); //This value determines the output torque limit of the motor 1mNm is the unit
 
+  // Effective DAMPING e-stop D gain (applied at runtime with P->0). Logged so
+  // the per-joint choice is visible at boot even when the YAML key is absent
+  // (struct default 100 then stands).
+  MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::configParam] '" << name_
+                   << "' DAMPING e-stop will use JVPT D="
+                   << static_cast<uint32_t>(configuration_.jvptDampingDGain)
+                   << " (raw 0x34C6:03), P=0; normal JVPT P=" << jvpt_p_gain
+                   << " D=" << jvpt_d_gain);
+
   configSuccess &= sdoVerifyWrite(OD_INDEX_JVPT_PARAMETERS, 0x01, false,
                                   jvpt_p_gain,
                                   configuration_.configRunSdoVerifyTimeout);
