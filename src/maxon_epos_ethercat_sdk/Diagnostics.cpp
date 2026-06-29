@@ -50,8 +50,16 @@ std::string errorCodeToString(uint16_t code) {
     case 0x3210: return "Overvoltage error";
     case 0x4210: return "Overtemperature error";
     case 0x6320: return "Software parameter error";
+    case 0x8110: return "CAN overrun error (object lost)";
+    case 0x8120: return "CAN in error-passive mode";
     case 0x8130: return "Life-guard / heartbeat error";
     case 0x8180: return "EtherCAT communication error";
+    case 0x8181: return "EtherCAT initialization error";
+    case 0x8182: return "EtherCAT Rx queue overflow";
+    case 0x8210: return "PDO length error";
+    case 0x8250: return "RPDO timeout (drive missed its cyclic command frame)";
+    case 0x8280: return "EtherCAT PDO communication error";
+    case 0x8281: return "EtherCAT SDO communication error";
     case 0x8611: return "Following error";
     default:
       return "unmapped code - see EPOS4 Firmware Specification ch.7 (Error Handling)";
