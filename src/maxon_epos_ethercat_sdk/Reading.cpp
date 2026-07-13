@@ -177,9 +177,7 @@ Statusword Reading::getStatusword() const {
   return statusword;
 }
 double Reading::getBusVoltage() const {
-  // busVoltage_ holds the raw EPOS4 object 0x2200:01, which is in units of
-  // 0.1 V (deci-volts) per the firmware spec — NOT millivolts. Scale by 0.1.
-  return 0.1 * static_cast<double>(busVoltage_);
+  return 0.001 * static_cast<double>(busVoltage_);
 }
 
 /*!

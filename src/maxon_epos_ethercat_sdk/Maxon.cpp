@@ -393,12 +393,11 @@ void Maxon::updateRead() {
       reading_.setActualJointVelocityRAW(txPdo.actualJointVelocity_);
       reading_.setActualJointCurrentRAW(txPdo.actualJointCurrent_);
       reading_.setEstJointTorqueRAW(txPdo.estJointTorque_);
-      // Motor temperature + bus voltage are in the cyclic PDO (7 objects total).
-      // Order MUST match the TxPdoJVPT struct + the mapping array in
-      // ConfigureParameters.cpp. Power-stage (psu) temperature was swapped out
-      // for voltage and is now refreshed at ~1 Hz via SDO (see standalone.cpp).
+      // Drive temperatures are back in the cyclic PDO (7 objects total). Order
+      // MUST match the TxPdoJVPT struct + the mapping array in
+      // ConfigureParameters.cpp.
       reading_.setMotorTemperatureRAW(txPdo.temeperature_motor);
-      reading_.setBusVoltage(txPdo.busVoltage_);
+      reading_.setPsuTemperatureRAW(txPdo.temeperature_psu);
       // These diagnostics remain off the cyclic PDO (read via SDO if needed).
       // Their Reading getters return defaults (0) until read via SDO.
       // reading_.setDemandedJointCurrentRAW(txPdo.currentDemand);
@@ -429,9 +428,7 @@ void Maxon::updateRead() {
       reading_.setDemandedJointVelocityRAW(txPdo.velocityDemand);
       reading_.setMotorTemperatureRAW(txPdo.temeperature_motor);
       reading_.setI2tMotorRAW(txPdo.i2tmotor);
-      // Power-stage (psu) temperature was swapped out of this Freeze PDO for bus
-      // voltage too (matches TxPdoJVPT); psu temp is refreshed at ~1 Hz via SDO.
-      reading_.setBusVoltage(txPdo.busVoltage_);
+      reading_.setPsuTemperatureRAW(txPdo.temeperature_psu);
       reading_.setI2tPSURAW(txPdo.i2tpsu);
       reading_.setEstJointTorqueRAW(txPdo.estJointTorque_);
       reading_.setPositionDemand(txPdo.positionDemand);
@@ -811,45 +808,13 @@ bool Maxon::getTemperatureStateSDO(){
   return success;
 }
 
-bool Maxon::readVoltageDataSDO() {
+bool Maxon::readVoltageDataSDO() {  
   bool success = true;
   uint16_t psu_voltage;
 
   success &= sendSdoRead(OD_INDEX_PSU_VOLTAGE, 0x01, false, psu_voltage);
 
-  if (success) {
-    // 0x2200:01 is the EPOS4 power-supply voltage in units of 0.1 V (deci-volts,
-    // per the EPOS4 firmware spec). Store the raw value; Reading::getBusVoltage()
-    // applies the 0.1 V scale. Guard with readingMutex_: the RT worker's
-    // updateRead() writes reading_ under the same lock, and this SDO read runs
-    // off the executor thread (see standalone.cpp::publishRosStatus).
-    std::lock_guard<std::recursive_mutex> lock(readingMutex_);
-    reading_.setBusVoltage(psu_voltage);
-  } else {
-    MELO_WARN_STREAM("[Maxon] bus-voltage SDO read (0x2200:01) failed; "
-                     "keeping last reported value.");
-  }
-  return success;
-}
-
-bool Maxon::readPsuTemperatureSDO() {
-  bool success = true;
-  int16_t temperature_power_stage;
-
-  success &= sendSdoRead(OD_INDEX_TEMPERATURE, 0x01, false, temperature_power_stage);
-
-  if (success) {
-    // Power-stage (psu) temperature, 0x3201:01. It was moved off the cyclic PDO
-    // to make room for bus voltage, so it is refreshed here acyclically at the
-    // ~1 Hz poll rate driven by standalone.cpp. Raw units match the old cyclic
-    // path (Reading::getPsuTemperature applies the 0.1 degC scale). Guard with
-    // readingMutex_, same as the RT worker's updateRead() and readVoltageDataSDO.
-    std::lock_guard<std::recursive_mutex> lock(readingMutex_);
-    reading_.setPsuTemperatureRAW(temperature_power_stage);
-  } else {
-    MELO_WARN_STREAM("[Maxon] psu-temperature SDO read (0x3201:01) failed; "
-                     "keeping last reported value.");
-  }
+  MELO_INFO_STREAM("PSU Voltage: " << psu_voltage / 10.0);
   return success;
 }
 
