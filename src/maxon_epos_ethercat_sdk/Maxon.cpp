@@ -808,13 +808,24 @@ bool Maxon::getTemperatureStateSDO(){
   return success;
 }
 
-bool Maxon::readVoltageDataSDO() {  
+bool Maxon::readVoltageDataSDO() {
   bool success = true;
   uint16_t psu_voltage;
 
   success &= sendSdoRead(OD_INDEX_PSU_VOLTAGE, 0x01, false, psu_voltage);
 
-  MELO_INFO_STREAM("PSU Voltage: " << psu_voltage / 10.0);
+  if (success) {
+    // 0x2200:01 is the EPOS4 power-supply voltage in units of 0.1 V (deci-volts,
+    // per the EPOS4 firmware spec). Store the raw value; Reading::getBusVoltage()
+    // applies the 0.1 V scale. Guard with readingMutex_: the RT worker's
+    // updateRead() writes reading_ under the same lock, and this SDO read runs
+    // off the executor thread (see standalone.cpp::publishRosStatus).
+    std::lock_guard<std::recursive_mutex> lock(readingMutex_);
+    reading_.setBusVoltage(psu_voltage);
+  } else {
+    MELO_WARN_STREAM("[Maxon] bus-voltage SDO read (0x2200:01) failed; "
+                     "keeping last reported value.");
+  }
   return success;
 }
 
