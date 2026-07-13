@@ -114,6 +114,7 @@ class Maxon : public ecat_master::EthercatDevice {
   bool readPositionLimitsSDO();
   bool getTemperatureStateSDO();
   bool readVoltageDataSDO();
+  bool readPsuTemperatureSDO();
   bool getConfigurationSDO();
 
   //homing

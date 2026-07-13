@@ -100,13 +100,15 @@ struct TxPdoJVPT {
   int32_t actualJointVelocity_;
   int32_t actualJointPosition_;
   int32_t actualJointCurrent_;
-  // --- TxPDO is 7 objects: the 5 core feedbacks above + the two drive
-  // temperatures below (motor=0x3201/0x02, power-stage=0x3201/0x01). Still
-  // within the "<=8 PDOs/direction" bound that motivated the original trim
-  // from 12. Struct order MUST match the mapping array in
-  // ConfigureParameters.cpp and the parse in Maxon.cpp::updateRead.
+  // --- TxPDO is 7 objects: the 5 core feedbacks above + motor temperature
+  // (0x3201/0x02) and the bus voltage (0x2200/0x01) below. The power-stage
+  // temperature was pulled off the cyclic PDO to make room for voltage in the
+  // fast path — over-temp is still caught via the drive fault state, and psu
+  // temperature is refreshed at ~1 Hz over SDO (see standalone.cpp). Still
+  // within the "<=8 PDOs/direction" bound. Struct order MUST match the mapping
+  // array in ConfigureParameters.cpp and the parse in Maxon.cpp::updateRead.
   int16_t temeperature_motor;
-  int16_t temeperature_psu;
+  uint16_t busVoltage_;  // EPOS4 0x2200:01, deci-volts (replaces power-stage temp)
   // The remaining diagnostics stay off the cyclic PDO (read via SDO if needed):
   // int32_t velocityDemand;
   // int32_t currentDemand;
@@ -127,7 +129,7 @@ struct TxPdoFreeze {
   int32_t currentDemand;
   int32_t positionDemand;
   int16_t temeperature_motor;
-  int16_t temeperature_psu;
+  uint16_t busVoltage_;  // EPOS4 0x2200:01, deci-volts (replaces power-stage temp; psu temp via SDO)
   uint16_t i2tmotor;
   uint16_t i2tpsu;
 } __attribute__((packed));
