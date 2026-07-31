@@ -393,11 +393,12 @@ void Maxon::updateRead() {
       reading_.setActualJointVelocityRAW(txPdo.actualJointVelocity_);
       reading_.setActualJointCurrentRAW(txPdo.actualJointCurrent_);
       reading_.setEstJointTorqueRAW(txPdo.estJointTorque_);
-      // Drive temperatures are back in the cyclic PDO (7 objects total). Order
-      // MUST match the TxPdoJVPT struct + the mapping array in
-      // ConfigureParameters.cpp.
+      // Motor temperature is on the cyclic PDO (6 objects total). Order MUST
+      // match the TxPdoJVPT struct + the mapping array in
+      // ConfigureParameters.cpp. Power-stage (psu) temperature was dropped from
+      // the cyclic PDO (read via SDO if needed).
       reading_.setMotorTemperatureRAW(txPdo.temeperature_motor);
-      reading_.setPsuTemperatureRAW(txPdo.temeperature_psu);
+      // reading_.setPsuTemperatureRAW(txPdo.temeperature_psu);  // psu temp off cyclic PDO
       // These diagnostics remain off the cyclic PDO (read via SDO if needed).
       // Their Reading getters return defaults (0) until read via SDO.
       // reading_.setDemandedJointCurrentRAW(txPdo.currentDemand);
