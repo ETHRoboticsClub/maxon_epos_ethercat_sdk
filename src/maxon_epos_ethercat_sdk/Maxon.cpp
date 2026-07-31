@@ -340,6 +340,7 @@ int32_t Maxon::clampJointPositionToSoftLimits(int32_t targetJointPositionRaw) {
 void Maxon::updateRead() {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
 
+  // TODO(duboisf): implement some sort of time stamp
   switch (txPdoTypeEnum_) {
     case TxPdoTypeEnum::TxPdoStandard: {
       TxPdoStandard txPdo{};
@@ -444,17 +445,6 @@ void Maxon::updateRead() {
           "type for '"
           << name_ << "'");
       reading_.addError(ErrorType::TxPdoTypeError);
-  }
-
-  // ACQUISITION TIME. Stamp the reading here — the instant the TxPDO was copied
-  // off the bus — not when a consumer later publishes it. This is the closest
-  // software gets to acquisition without EtherCAT distributed-clock capture, and
-  // it is what lets consumers report a source-referenced timestamp instead of
-  // one carrying their own scheduling jitter. getAgeOfLastReadingInMicroseconds()
-  // is meaningless until this is set, so it must stay on every read path.
-  {
-    std::lock_guard<std::recursive_mutex> readingLock(readingMutex_);
-    reading_.setTimePointNow();
   }
 
   // set the hasRead_ variable to true since a nes reading was read
