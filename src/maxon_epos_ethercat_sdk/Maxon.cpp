@@ -791,6 +791,14 @@ bool Maxon::readPositionLimitsSDO(){
   success &= sendSdoRead(OD_INDEX_SOFTWARE_POSITION_LIMIT, 0x01, false, min_soft_pos_limit);
   success &= sendSdoRead(OD_INDEX_SOFTWARE_POSITION_LIMIT, 0x02, false, max_soft_pos_limit);
 
+  // Read and then discarded until now, which made this the one silent member of
+  // the getConfigurationSDO() dump. The soft limits matter in particular: equal
+  // values (0/0) mean the drive enforces no software position limit of its own.
+  MELO_INFO_STREAM("Position Range Limit: [" << min_position_range_limit << ", "
+                   << max_position_range_limit << "] (raw)");
+  MELO_INFO_STREAM("Software Position Limit: [" << min_soft_pos_limit << ", "
+                   << max_soft_pos_limit << "] (raw; equal values = limit disabled)");
+
   return success;
 }
 
