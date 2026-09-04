@@ -220,6 +220,22 @@ bool Configuration::sanityCheck(bool silent) const {
         "soft position limits are not used"
       },
       {
+        // Both are DIVISORS: Maxon.cpp derives torqueFactorNmToInteger =
+        // 1000 / (nominalCurrentA * torqueConstantNmA). At the old {0} defaults
+        // that was inf, and Command::doUnitConversion's
+        // static_cast<int16_t>(inf * 0.0) is undefined behaviour on every
+        // stageCommand.
+        //
+        // NOTE this is a DIAGNOSTIC PRINT, not a gate. sanityCheck's result
+        // reaches loadConfiguration -> loadConfigFile, and Maxon::deviceFromFile
+        // discards it, so a failing test colours one line red and startup
+        // continues. Do not read any entry in this list as "the config is
+        // refused". Making it fatal is a live follow-up; see docs/report/66.
+        (nominalCurrentA > 0.0 && torqueConstantNmA > 0.0),
+        "nominal_current and torque_constant are set (> 0); they scale all "
+        "reported current/torque and a zero silently reports 0 Nm on every drive"
+      },
+      {
         // Written raw to 0x34C6:03 as UNSIGNED32 by the DAMPING e-stop. A
         // negative value would wrap to a huge gain (violent damping); cap the
         // upper bound generously (100x a typical D=10000) to catch garbage.

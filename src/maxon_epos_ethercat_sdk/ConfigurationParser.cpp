@@ -245,6 +245,49 @@ void ConfigurationParser::parseConfiguration(YAML::Node configNode) {
                                  static_cast<double>(gearRatio.second);
     }
 
+    // Motor electrical constants. These were declared in Configuration but never
+    // read from the file, so they sat at their {0} defaults.
+    //
+    // WHAT THAT ACTUALLY BROKE: Maxon.cpp derives
+    //   torqueFactorNmToInteger = 1000 / (nominalCurrentA * torqueConstantNmA)
+    // which was 1000/0 = inf. Command::doUnitConversion() then evaluated
+    //   targetTorque_ = static_cast<int16_t>(inf * 0.0)   // = int16_t(NaN)
+    // on EVERY stageCommand -- an out-of-range float->int conversion, i.e.
+    // undefined behaviour, running at ~667 Hz per drive in every mode. Same for
+    // torqueOffset_. Parsing these makes both factors finite. That is the fix.
+    //
+    // WHAT IT DOES NOT CHANGE: /<device>/status. standalone.cpp publishes
+    // reading.getActualJointCurrent() and reading.getEstJointTorque(), the
+    // Anydrive5 getters, which are hardcoded *0.001 off 0x30D1:01 and 0x3672
+    // and never touch these factors. getActualCurrent()/getActualTorque(), which
+    // do use them, have no callers anywhere in the repo. Whether reported torque
+    // is trustworthy is a separate, still-open question about the 0x3672 path.
+    //
+    // Values are the drives' own, read back over SDO from the bus (0x3001:01
+    // nominal current, :02 output current limit, :05 torque constant) rather
+    // than copied from a datasheet -- see docs/report/66.
+    double nominalCurrentA;
+    if (getValueFromFile(hardwareNode, "nominal_current", nominalCurrentA)) {
+      configuration_.nominalCurrentA = nominalCurrentA;
+    }
+
+    // Parsed and carried, but NOT sent to the drive: this SDK writes no current
+    // limit (0x6072/0x6073 are not even implemented on this EPOS4 firmware).
+    // The limit that actually protects the actuator is the one flashed in the
+    // drive's NVM at 0x3001:02. This value should mirror it, and is here so a
+    // reader can compare the two without a bus.
+    double maxCurrentA;
+    if (getValueFromFile(hardwareNode, "max_current", maxCurrentA)) {
+      configuration_.maxCurrentA = maxCurrentA;
+    }
+
+    // Nm/A at the MOTOR, matching the field name. The drive reports this at
+    // 0x3001:05 in micro-Nm/A, so 99700 there is 0.0997 here.
+    double torqueConstantNmA;
+    if (getValueFromFile(hardwareNode, "torque_constant", torqueConstantNmA)) {
+      configuration_.torqueConstantNmA = torqueConstantNmA;
+    }
+
 
     //Anydrive5 specific settings
 

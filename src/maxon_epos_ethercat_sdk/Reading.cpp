@@ -106,6 +106,12 @@ double Reading::getActualVelocity() const {
 double Reading::getActualCurrent() const {
   return static_cast<double>(actualCurrent_) * currentFactorIntegerToAmp_;
 }
+// MOTOR-side Nm, not joint-side: actualCurrent_ is per-mille of Motor Rated
+// Torque, so this returns e.g. ~3.08 Nm rated / ~7.1 Nm peak for an HEJ90, while
+// every max_torque key, the dashboard gauge and walk_manual_control.py are
+// joint-side (140 Nm for the same drive). Currently NO CALLERS. Reconcile the
+// frame before wiring this anywhere, or values arrive ~20-45x small with no unit
+// error to catch it.
 double Reading::getActualTorque() const {
   return static_cast<double>(actualCurrent_) * torqueFactorIntegerToNm_;
 }
