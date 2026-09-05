@@ -79,8 +79,8 @@ DriveState Reading::getDriveState() const {
 }
 
 double Reading::getAgeOfLastReadingInMicroseconds() const {
-  ReadingDuration readingDuration = ReadingClock::now() - lastReadingTimePoint_;
-  return readingDuration.count();
+  return std::chrono::duration<double, std::micro>(
+      ReadingClock::now() - lastReadingTimePoint_).count();
 }
 
 /*!

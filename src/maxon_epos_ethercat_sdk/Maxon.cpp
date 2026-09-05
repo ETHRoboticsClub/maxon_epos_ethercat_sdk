@@ -390,6 +390,7 @@ void Maxon::updateRead() {
       //from the TxPDOJVPT configuration read the required values from the actuators
       reading_.setStatusword(txPdo.statusword_);
       reading_.setActualJointPositionRAW(txPdo.actualJointPosition_);
+      reading_.setTimePointNow();  // bus calls updateRead only after a successful WKC
       reading_.setActualJointVelocityRAW(txPdo.actualJointVelocity_);
       reading_.setActualJointCurrentRAW(txPdo.actualJointCurrent_);
       reading_.setEstJointTorqueRAW(txPdo.estJointTorque_);
@@ -423,6 +424,7 @@ void Maxon::updateRead() {
       //from the TxPDOJVPT configuration read the required values from the actuators
       reading_.setStatusword(txPdo.statusword_);
       reading_.setActualJointPositionRAW(txPdo.actualJointPosition_);
+      reading_.setTimePointNow();
       reading_.setActualJointVelocityRAW(txPdo.actualJointVelocity_);
       reading_.setActualJointCurrentRAW(txPdo.actualJointCurrent_);
       reading_.setDemandedJointCurrentRAW(txPdo.currentDemand);
