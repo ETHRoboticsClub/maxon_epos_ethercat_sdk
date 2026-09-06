@@ -33,6 +33,7 @@
 #define _USE_MATH_DEFINES  // for M_PI
 #include <cmath>
 
+#include "maxon_epos_ethercat_sdk/JointUnits.hpp"
 #include "maxon_epos_ethercat_sdk/Reading.hpp"
 
 std::ostream& operator<<(std::ostream& os, const maxon::Reading& reading) {
@@ -131,8 +132,11 @@ double Reading::getActualJointPosition() const {
   return static_cast<double>(actualJointPosition_) * positionFactorIntegerToRad_;
 }
 
+// milli-RPM -> rad/s. NOT the *0.001 the neighbouring getters use: those
+// really are milli-SI, this object is not. See JointUnits.hpp.
 double Reading::getActualJointVelocity() const {
-  return static_cast<double>(actualJointVelocity_) * 0.001;
+  return static_cast<double>(actualJointVelocity_) *
+         kJointVelocityMilliRpmToRadPerSec;
 }
 
 double Reading::getEstJointTorque() const {

@@ -97,6 +97,10 @@
 #define OD_INDEX_SI_UNIT_ACCELERATION (0x60AA)
 #define OD_INDEX_SI_UNIT_POSITION (0x60A8)
 #define OD_INDEX_SI_UNIT_VELOCITY (0x60A9)
+// Expected value of 0x60A9 on these drives: milli-RPM. The joint-block velocity
+// conversion in JointUnits.hpp is hardcoded to it; readSIUnitSDO() checks the
+// bus against this so a differently-flashed drive cannot scale silently.
+#define OD_VALUE_SI_UNIT_VELOCITY_MILLI_RPM (0xFDB44700)
 
 
 //Acceleration related registers

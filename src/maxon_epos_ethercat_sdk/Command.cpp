@@ -31,6 +31,7 @@
 // clang-format on
 
 #include "maxon_epos_ethercat_sdk/Command.hpp"
+#include "maxon_epos_ethercat_sdk/JointUnits.hpp"
 
 #include <iomanip>
 
@@ -189,7 +190,9 @@ void Command::setTargetJointPosition(double targetJointPosition) {
 
 void Command::setTargetJointVelocity(double targetJointVelocity) {
   targetJointVelocityUU_ = targetJointVelocity;
-  targetJointVelocity_ = static_cast<int32_t>(1000 * targetJointVelocityUU_);
+  // rad/s -> milli-RPM, the inverse of Reading::getActualJointVelocity().
+  targetJointVelocity_ = static_cast<int32_t>(
+      targetJointVelocityUU_ / kJointVelocityMilliRpmToRadPerSec);
 }
 
 void Command::setTargetJointTorque(double targetJointTorque) {
@@ -279,9 +282,9 @@ void Command::doUnitConversion() {
 
     // Anydrive5-specific unit conversions:
     // position uses the configured encoder resolution factor,
-    // velocity/current/torque follow firmware-specific m-units.
-    //velocity in mRpm
-    //Torque in mNm
+    // current/torque follow firmware-specific m-units (mA, mNm), and velocity
+    // is mRPM -- a different base unit, hence JointUnits.hpp rather than a
+    // shared milli-prefix.
 }
 
 /// other get methods

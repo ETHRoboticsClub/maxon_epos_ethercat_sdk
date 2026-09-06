@@ -39,6 +39,7 @@
 #include <algorithm>
 
 #include "maxon_epos_ethercat_sdk/ConfigurationParser.hpp"
+#include "maxon_epos_ethercat_sdk/JointUnits.hpp"
 #include "maxon_epos_ethercat_sdk/ObjectDictionary.hpp"
 #include "maxon_epos_ethercat_sdk/RxPdo.hpp"
 #include "maxon_epos_ethercat_sdk/TxPdo.hpp"
@@ -756,7 +757,20 @@ bool Maxon::readSIUnitSDO() {
   MELO_INFO_STREAM("SI Unit Acceleration: " << std::hex << siUnitAcc);
 
   success &= sendSdoRead(OD_INDEX_SI_UNIT_VELOCITY, 0, false, siUnitVel);
-  MELO_INFO_STREAM("SI Unit Velocity: " << std::hex << siUnitVel);
+  MELO_INFO_STREAM("SI Unit Velocity: " << std::hex << siUnitVel << std::dec);
+  // kJointVelocityMilliRpmToRadPerSec assumes this drive reports velocity in
+  // milli-RPM. If it does not, every joint velocity it publishes is off by the
+  // ratio of the two units and nothing downstream can tell -- the field is
+  // display/logging only, so there is no controller to diverge and give it
+  // away. Say so at bring-up instead.
+  if (siUnitVel != OD_VALUE_SI_UNIT_VELOCITY_MILLI_RPM) {
+    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::readSIUnitSDO] '" << name_
+        << "': expected SI unit velocity (0x60A9) = 0x" << std::hex
+        << OD_VALUE_SI_UNIT_VELOCITY_MILLI_RPM << " (milli-RPM), got 0x"
+        << siUnitVel << std::dec << ", fallback=converting as milli-RPM anyway. "
+        "Joint velocity from this drive is scaled wrong until the drive is "
+        "reflashed or JointUnits.hpp is made unit-aware.");
+  }
 
   return success;
 }
