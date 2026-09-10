@@ -134,6 +134,8 @@ class Reading {
 
   void setTimePointNow();
 
+  ReadingTimePoint getLastReadingTimePoint() const { return lastReadingTimePoint_; }
+
   void setPositionFactorIntegerToRad(double positionFactor);
 
   void setCurrentFactorIntegerToAmp(double currentFactor);
