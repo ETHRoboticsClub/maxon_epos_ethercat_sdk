@@ -38,6 +38,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 ## Enable all compiler warnings and treat them as errors.
 add_compile_options(-Wall -Wextra -Wpedantic)
+## -Wpsabi is a GCC>=10 aarch64 notice that std::pair<scalar,scalar> by-value passing changed ABI
+## relative to GCC<10.1. Every object here is built with one toolchain, so it carries no information.
+if(CMAKE_COMPILER_IS_GNUCXX)
+  add_compile_options(-Wno-psabi)
+endif()
 
 ## Export compile commands for clang.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
