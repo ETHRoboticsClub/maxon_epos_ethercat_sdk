@@ -63,6 +63,7 @@ class Statusword {
   friend std::ostream& operator<<(std::ostream& os,
                                   const Statusword& statusword);
   void setFromRawStatusword(uint16_t status);
+  bool homingFinished();
   DriveState getDriveState() const;
   std::string getDriveStateString() const;
 };

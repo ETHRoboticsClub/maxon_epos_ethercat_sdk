@@ -41,18 +41,16 @@
 namespace maxon {
 std::string modeOfOperationString(ModeOfOperationEnum modeOfOperation_) {
   switch (modeOfOperation_) {
-    case ModeOfOperationEnum::ProfiledPositionMode:
-      return "Profiled Position Mode";
+    case ModeOfOperationEnum::NA:
+      return "NA";
     case ModeOfOperationEnum::ProfiledVelocityMode:
       return "Profiled Velocity Mode";
-    case ModeOfOperationEnum::HomingMode:
-      return "Homing Mode";
-    case ModeOfOperationEnum::CyclicSynchronousPositionMode:
-      return "Cyclic Synchronous Position Mode";
-    case ModeOfOperationEnum::CyclicSynchronousVelocityMode:
-      return "Cyclic Synchronous Velocity Mode";
     case ModeOfOperationEnum::CyclicSynchronousTorqueMode:
       return "Cyclic Synchronous Torque Mode";
+    case ModeOfOperationEnum::CyclicJVPTMode:
+      return "Cyclic JVPT Mode";
+    case ModeOfOperationEnum::CyclicFreezeMode:
+      return "Cyclic Joint Freeze Mode";
     default:
       return "Unsupported Mode of Operation";
   }
@@ -64,18 +62,14 @@ std::string rxPdoString(RxPdoTypeEnum rxPdo) {
       return "NA";
     case RxPdoTypeEnum::RxPdoStandard:
       return "Rx PDO Standard";
-    case RxPdoTypeEnum::RxPdoCSP:
-      return "Rx PDO CSP";
     case RxPdoTypeEnum::RxPdoCST:
       return "Rx PDO CST";
-    case RxPdoTypeEnum::RxPdoCSV:
-      return "Rx PDO CSV";
-    case RxPdoTypeEnum::RxPdoCSTCSP:
-      return "Rx PDO CST/CSP mixed mode";
-    case RxPdoTypeEnum::RxPdoCSTCSPCSV:
-      return "Rx PDO CST/CSP/CSV mixed mode";
     case RxPdoTypeEnum::RxPdoPVM:
       return "Rx PDO PVM";
+    case RxPdoTypeEnum::RxPdoJVPT:
+      return "Rx PDO JVPT";
+    case RxPdoTypeEnum::RxPdoFreeze:
+      return "Rx PDO Freeze";
     default:
       return "Unsupported Type";
   }
@@ -85,20 +79,16 @@ std::string txPdoString(TxPdoTypeEnum txPdo) {
   switch (txPdo) {
     case TxPdoTypeEnum::NA:
       return "NA";
-    case TxPdoTypeEnum::TxPdoCSP:
-      return "Tx PDO CSP";
     case TxPdoTypeEnum::TxPdoCST:
       return "Tx PDO CST";
-    case TxPdoTypeEnum::TxPdoCSV:
-      return "Tx PDO CSV";
-    case TxPdoTypeEnum::TxPdoCSTCSP:
-      return "Tx PDO CST/CSP mixed mode";
-    case TxPdoTypeEnum::TxPdoCSTCSPCSV:
-      return "Rx PDO CST/CSP/CSV mixed mode";
     case TxPdoTypeEnum::TxPdoPVM:
       return "Tx PDO PVM";
     case TxPdoTypeEnum::TxPdoStandard:
       return "Tx PDO Standard";
+    case TxPdoTypeEnum::TxPdoJVPT:
+      return "Tx PDO JVPT";
+    case TxPdoTypeEnum::TxPdoFreeze:
+      return "Tx PDO Freeze";
     default:
       return "Unsupported Type";
   }
@@ -154,37 +144,16 @@ std::pair<RxPdoTypeEnum, TxPdoTypeEnum> Configuration::getPdoTypeSolution()
   // {ModeOfOperationEnum1, ..., ModeOfOperationEnumN} -> {RxPdoTypeEnum, TxPdoTypeEnum}
   const std::map<std::vector<ModeOfOperationEnum>, std::pair<RxPdoTypeEnum, TxPdoTypeEnum>> modes2PdoTypeMap = {
       {
-        { ModeOfOperationEnum::CyclicSynchronousTorqueMode, ModeOfOperationEnum::CyclicSynchronousPositionMode },
-        { RxPdoTypeEnum::RxPdoCSTCSP, TxPdoTypeEnum::TxPdoCSTCSP }
-      },
-      {
-        { ModeOfOperationEnum::CyclicSynchronousTorqueMode, ModeOfOperationEnum::CyclicSynchronousPositionMode,
-          ModeOfOperationEnum::CyclicSynchronousVelocityMode },
-        { RxPdoTypeEnum::RxPdoCSTCSPCSV, TxPdoTypeEnum::TxPdoCSTCSPCSV }
-      },
-      {
-        { ModeOfOperationEnum::CyclicSynchronousPositionMode },
-        { RxPdoTypeEnum::RxPdoCSP, TxPdoTypeEnum::TxPdoCSP }
-      },
-      {
         { ModeOfOperationEnum::CyclicSynchronousTorqueMode },
         { RxPdoTypeEnum::RxPdoCST, TxPdoTypeEnum::TxPdoCST }
       },
       {
-        { ModeOfOperationEnum::CyclicSynchronousVelocityMode },
-        { RxPdoTypeEnum::RxPdoCSV, TxPdoTypeEnum::TxPdoCSV }
-      },
-      {
-        { ModeOfOperationEnum::HomingMode },
-        { RxPdoTypeEnum::NA, TxPdoTypeEnum::NA }
-      },
-      {
-        { ModeOfOperationEnum::ProfiledPositionMode },
-        { RxPdoTypeEnum::NA, TxPdoTypeEnum::NA }
-      },
-      {
         { ModeOfOperationEnum::ProfiledVelocityMode },
         { RxPdoTypeEnum::RxPdoPVM, TxPdoTypeEnum::TxPdoPVM }
+      },
+      {
+        { ModeOfOperationEnum::CyclicJVPTMode, ModeOfOperationEnum::CyclicFreezeMode, ModeOfOperationEnum::HomingMode},
+        { RxPdoTypeEnum::RxPdoJVPT, TxPdoTypeEnum::TxPdoJVPT }
       },
       {
         { ModeOfOperationEnum::NA },
@@ -207,6 +176,7 @@ std::pair<RxPdoTypeEnum, TxPdoTypeEnum> Configuration::getPdoTypeSolution()
                     modeOfOperation) != modesOfOperation.end();
     if (setsAreEqual) return modes2PdoTypeEntry.second;
   }
+  printf("No valid combination of modes of operation found");
   return std::pair<RxPdoTypeEnum, TxPdoTypeEnum>{RxPdoTypeEnum::NA,
                                                  TxPdoTypeEnum::NA};
 }
@@ -232,50 +202,7 @@ bool Configuration::sanityCheck(bool silent) const {
   auto pdoTypePair = getPdoTypeSolution();
   // clang-format off
   const std::vector<std::pair<bool, std::string>> sanity_tests = {
-      {
-        (polePairs > 0),
-        "pole_pairs > 0"
-      },
-      {
-        (motorConstant > 0),
-        "motor_constant > 0"
-      },
-      {
-        (nominalCurrentA > 0),
-        "nominal_current > 0"
-      },
-      {
-        (maxCurrentA > 0),
-        "max_current > 0"
-      },
-      {
-        (torqueConstantNmA > 0),
-        "torque_constant > 0"
-      },
-      {
-        (maxProfileVelocity > 0),
-        "max_profile_velocity > 0"
-      },
-      {
-        (quickStopDecel > 0),
-        "quick_stop_decel > 0"
-      },
-      {
-        (profileDecel > 0),
-        "profile_decel > 0"
-      },
-      {
-        (profileDecel > 0),
-        "profile_decel > 0"
-      },
-      {
-        (positionEncoderResolution > 0),
-        "position_encoder_resolution > 0"
-      },
-      {
-        (gearRatio > 0),
-        "gear_ratio > 0"
-      },
+
       {
         (pdoTypePair.first != RxPdoTypeEnum::NA && pdoTypePair.second != TxPdoTypeEnum::NA),
         "modes of operation combination allowed"
@@ -284,6 +211,10 @@ bool Configuration::sanityCheck(bool silent) const {
         (driveStateChangeMinTimeout <= driveStateChangeMaxTimeout),
         "drive_state_change_min_timeout ≤ drive_state_change_max_timeout"
       },
+      {
+        (softMaxPosLimitSI == 0 && softMinPosLimitSI == 0),
+        "soft position limits are not used"
+      }
   };
   // clang-format on
 

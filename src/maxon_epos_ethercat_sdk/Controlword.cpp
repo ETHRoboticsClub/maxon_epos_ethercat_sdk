@@ -100,6 +100,8 @@ std::ostream& operator<<(std::ostream& os, const Controlword& controlword) {
 
 uint16_t Controlword::getRawControlword() {
   uint16_t rawControlword = 0;
+    rawControlword |= (1 << 5);
+    rawControlword |= (1 << 15);
 
   if (switchOn_) {
     rawControlword |= (1 << 0);
@@ -116,12 +118,16 @@ uint16_t Controlword::getRawControlword() {
   if (faultReset_) {
     rawControlword |= (1 << 7);
   }
-  if (halt_) {
-    rawControlword |= (1 << 8);
-  }
+  // if (halt_) {
+  //   rawControlword |= (1 << 8);
+  // }
   // if (endlessMovement_) {
   //   rawControlword |= (1 << 15);
   // }
+
+  if (homingOperationStart_) {
+    rawControlword |= (1 << 4);
+  }
 
   return rawControlword;
 }

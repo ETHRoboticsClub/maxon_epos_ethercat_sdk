@@ -68,6 +68,7 @@ class Command {
   void setPositionFactorRadToInteger(double factor);
   void setTorqueFactorNmToInteger(double factor);
   void setCurrentFactorAToInteger(double factor);
+  void setVelocityFactorToRadPerS(double factor);
 
   /// set user units
   void setTargetPosition(double targetPosition);
@@ -76,6 +77,11 @@ class Command {
   void setPositionOffset(double positionOffset);
   void setTorqueOffset(double velocityOffset);
   void setVelocityOffset(double velocityOffset);
+
+  /// set joints in SI Units
+  void setTargetJointPosition(double jointPosition);
+  void setTargetJointVelocity(double jointVelocity);
+  void setTargetJointTorque(double jointTorque);
 
   /// other
   void setDigitalOutputs(uint32_t digitalOutputs);
@@ -93,12 +99,24 @@ class Command {
   uint32_t getProfileDeccelRaw() const;
   int16_t getMotionProfileType() const;
 
+  // Anydrive5 get joint values in raw
+
+  int32_t getTargetJointPositionRaw() const;
+  int32_t getTargetJointVelocityRaw() const;
+  int32_t getTargetJointTorqueRaw() const;
+
   /// get (user units)
   double getTargetPosition() const;
   double getTargetVelocity() const;
   double getTargetTorque() const;
   double getTorqueOffset() const;
   double getVelocityOffset() const;
+
+  //Anydrive5 get joint values in SI Units
+  double getTargetJointPosition() const;
+  double getTargetJointVelocity() const;
+  double getTargetJointTorque() const;
+
 
   /*!
    * Get the digital outputs.
@@ -128,6 +146,11 @@ class Command {
   double torqueOffsetUU_{0};
   double velocityOffsetUU_{0};
 
+ //Anydrive5 specific user unit command values
+ double targetJointPositionUU_{0};
+ double targetJointVelocityUU_{0};
+ double targetJointTorqueUU_{0};
+
   int32_t targetPosition_{0};
   int32_t targetVelocity_{0};
   int16_t targetTorque_{0};
@@ -138,12 +161,23 @@ class Command {
   uint32_t profileDeccel_{0};
   int16_t motionProfileType_{0};
 
+  //Anydrive5 specific raw command values
+  int32_t targetJointPosition_{0};
+  int32_t targetJointVelocity_{0};
+  int32_t targetJointTorque_{0};
+
+  double SI_pos_to_inc{4096 / (2 * M_PI)};
+
+
+
+
+
   std::mutex targetTorqueCommandMutex_;
 
   uint32_t digitalOutputs_{0};
 
   double positionFactorRadToInteger_{1};
-  const double velocityFactorRadPerSecToMicroRPM_{1.0 / (2 * M_PI) * 60 * 1e6};
+  double velocityFactorConfiguredUnitToRadPerSec_{1};
   double torqueFactorNmToInteger_{1};
   double currentFactorAToInteger_{1};
 

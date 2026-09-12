@@ -109,4 +109,21 @@ struct RxPdoPVM {
   int16_t motionProfileType_;
 } __attribute__((packed));
 
+
+struct RxPdoJVPT {
+  int32_t targetJointTorque_;
+  int32_t targetJointPosition_;
+  int32_t targetJointVelocity_;
+  uint16_t controlWord_;
+  int8_t modeOfOperation_;
+} __attribute__((packed));
+
+struct RxPdoFreeze {
+  int32_t targetJointTorque_;
+  int32_t targetJointPosition_;
+  int32_t targetJointVelocity_;
+  uint16_t controlWord_;
+  int8_t modeOfOperation_;
+} __attribute__((packed));
+
 }  // namespace maxon

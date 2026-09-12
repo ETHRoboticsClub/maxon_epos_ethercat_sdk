@@ -41,10 +41,18 @@ Command::Command(const Command& other) {
   targetTorqueUU_ = other.targetTorqueUU_;
   torqueOffsetUU_ = other.torqueOffsetUU_;
 
+  targetJointPositionUU_ = other.targetJointPositionUU_;
+  targetJointVelocityUU_ = other.targetJointVelocityUU_;
+  targetJointTorqueUU_ = other.targetJointTorqueUU_;
+
   targetPosition_ = other.targetPosition_;
   targetVelocity_ = other.targetVelocity_;
   targetTorque_ = other.targetTorque_;
   torqueOffset_ = other.torqueOffset_;
+
+  targetJointPosition_ = other.targetJointPosition_;
+  targetJointVelocity_ = other.targetJointVelocity_;
+  targetJointTorque_ = other.targetJointTorque_;
 
   positionFactorRadToInteger_ = other.positionFactorRadToInteger_;
   torqueFactorNmToInteger_ = other.torqueFactorNmToInteger_;
@@ -70,6 +78,14 @@ Command& Command::operator=(const Command& other) {
   velocityOffset_ = other.velocityOffset_;
   targetTorque_ = other.targetTorque_;
   torqueOffset_ = other.torqueOffset_;
+
+  targetJointPositionUU_ = other.targetJointPositionUU_;
+  targetJointVelocityUU_ = other.targetJointVelocityUU_;
+  targetJointTorqueUU_ = other.targetJointTorqueUU_;
+
+  targetJointPosition_ = other.targetJointPosition_;
+  targetJointVelocity_ = other.targetJointVelocity_;
+  targetJointTorque_ = other.targetJointTorque_;
 
   positionFactorRadToInteger_ = other.positionFactorRadToInteger_;
   torqueFactorNmToInteger_ = other.torqueFactorNmToInteger_;
@@ -163,6 +179,26 @@ void Command::setVelocityOffset(double velocityOffset) {
   velocityOffsetUU_ = velocityOffset;
 }
 
+
+
+//Anydrive5 set joint values in SI Units
+
+void Command::setTargetJointPosition(double targetJointPosition) {
+  targetJointPositionUU_ = targetJointPosition;
+  targetJointPosition_ = static_cast<int32_t>( SI_pos_to_inc * targetJointPositionUU_);
+}
+
+void Command::setTargetJointVelocity(double targetJointVelocity) {
+  targetJointVelocityUU_ = targetJointVelocity;
+  targetJointVelocity_ = static_cast<int32_t>(1000 * targetJointVelocityUU_);
+}
+
+void Command::setTargetJointTorque(double targetJointTorque) {
+  targetJointTorqueUU_ = targetJointTorque;
+  targetJointTorque_ = static_cast<int32_t>(1000 * targetJointTorqueUU_);
+}
+
+
 /*!
  * factors set methods
  */
@@ -174,6 +210,9 @@ void Command::setTorqueFactorNmToInteger(double factor) {
 }
 void Command::setCurrentFactorAToInteger(double factor) {
   currentFactorAToInteger_ = factor;
+}
+void Command::setVelocityFactorToRadPerS(double factor) {
+  velocityFactorConfiguredUnitToRadPerSec_ = factor;
 }
 
 /*!
@@ -202,6 +241,11 @@ uint32_t Command::getProfileAccelRaw() const { return profileAccel_; }
 uint32_t Command::getProfileDeccelRaw() const { return profileDeccel_; }
 int16_t Command::getMotionProfileType() const { return motionProfileType_; }
 
+//Anydrive5 get joint values in raw
+int32_t Command::getTargetJointPositionRaw() const { return targetJointPosition_; }
+int32_t Command::getTargetJointVelocityRaw() const { return targetJointVelocity_; }
+int32_t Command::getTargetJointTorqueRaw() const { return targetJointTorque_; }
+
 /*
  * get methods (user units)
  */
@@ -211,11 +255,15 @@ double Command::getTargetTorque() const { return targetTorqueUU_; }
 double Command::getTorqueOffset() const { return torqueOffsetUU_; }
 double Command::getVelocityOffset() const { return velocityOffsetUU_; }
 
+//Anydrive5 get joint values in SI Units
+double Command::getTargetJointPosition() const { return targetJointPositionUU_; }
+double Command::getTargetJointVelocity() const { return targetJointVelocityUU_; }
+double Command::getTargetJointTorque() const { return targetJointTorqueUU_; }
+
 void Command::doUnitConversion() {
-  if (!useRawCommands_) {
     targetPosition_ =
         static_cast<int32_t>(positionFactorRadToInteger_ * targetPositionUU_);
-    targetVelocity_ = static_cast<int32_t>(velocityFactorRadPerSecToMicroRPM_ *
+    targetVelocity_ = static_cast<int32_t>(1 *
                                            targetVelocityUU_);
     targetTorque_ =
         static_cast<int16_t>(torqueFactorNmToInteger_ * targetTorqueUU_);
@@ -224,9 +272,14 @@ void Command::doUnitConversion() {
         static_cast<int32_t>(positionFactorRadToInteger_ * positionOffsetUU_);
     torqueOffset_ =
         static_cast<int16_t>(torqueFactorNmToInteger_ * torqueOffsetUU_);
-    velocityOffset_ = static_cast<int32_t>(velocityFactorRadPerSecToMicroRPM_ *
+    velocityOffset_ = static_cast<int32_t>(velocityFactorConfiguredUnitToRadPerSec_ *
                                            velocityOffsetUU_);
-  }
+
+    //Anydrive5 specific joint user unit to RAW conversion hardcoded in here
+    //look ath the anydrive5 sprcific firmware manual for these unit conversions
+    //velocity in mRpm
+    //Default position unit 4096 counts per revolution
+    //Torque in mNm
 }
 
 /// other get methods

@@ -83,15 +83,11 @@ bool getModesFromFile(YAML::Node& yamlNode, const std::string& varName,
   }
   try {
     const std::map<std::string, ModeOfOperationEnum> str2ModeMap = {
-        {"ProfiledPositionMode", ModeOfOperationEnum::ProfiledPositionMode},
         {"ProfiledVelocityMode", ModeOfOperationEnum::ProfiledVelocityMode},
+        {"CyclicSynchronousTorqueMode",ModeOfOperationEnum::CyclicSynchronousTorqueMode},
+        {"CyclicJVPTMode", ModeOfOperationEnum::CyclicJVPTMode},
+        {"CyclicFreezeMode", ModeOfOperationEnum::CyclicFreezeMode},
         {"HomingMode", ModeOfOperationEnum::HomingMode},
-        {"CyclicSynchronousPositionMode",
-         ModeOfOperationEnum::CyclicSynchronousPositionMode},
-        {"CyclicSynchronousVelocityMode",
-         ModeOfOperationEnum::CyclicSynchronousVelocityMode},
-        {"CyclicSynchronousTorqueMode",
-         ModeOfOperationEnum::CyclicSynchronousTorqueMode},
     };
 
     std::vector<std::string> strModes =
@@ -113,6 +109,29 @@ bool getModesFromFile(YAML::Node& yamlNode, const std::string& varName,
         "while parsing value \""
         << varName << "\", default values will be used");
     return false;
+  }
+}
+
+double getVelocityFactorConfiguredUnitToRadPerSecFromFile(uint32_t velConfig){
+  switch (velConfig) {
+    case 0x00B44700: //rpm
+      return 2.0 * M_PI / (60.0);
+    case 0xFFB44700: //dezi rpm
+      return (1.0/10.0) * 2.0*M_PI/(60.0);
+    case 0xFEB44700: //centi rpm
+      return (1.0/100.0) * 2.0*M_PI/(60.0);
+    case 0xFDB44700: //milli rpm
+      return (1.0/1000.0) * 2.0*M_PI/(60.0);
+    case 0xFCB44700: //10-e4
+      return (1.0/10000.0) * 2.0*M_PI/(60.0);
+    case 0xFBB44700: //10-e5
+      return (1.0/100000.0) * 2.0*M_PI/(60.0);
+    case 0xFAB44700:
+      MELO_WARN_STREAM("[MaxonSDK] Velocity unit configured in microRPM: max velocity limit by max int to ~210 rad/s")
+      return (1.0/1000000.0) * 2.0*M_PI/(60.0);
+    default:
+      MELO_ERROR_STREAM("[MaxonSDK] Could not read velocity unit configuration")
+      return 0;
   }
 }
 
@@ -226,107 +245,39 @@ void ConfigurationParser::parseConfiguration(YAML::Node configNode) {
                                  static_cast<double>(gearRatio.second);
     }
 
-    double motorConstant;
-    if (getValueFromFile(hardwareNode, "motor_constant", motorConstant)) {
-      configuration_.motorConstant = motorConstant;
+
+    //Anydrive5 specific settings
+
+    double maxTorqueSI;
+    if (getValueFromFile(hardwareNode, "max_torque", maxTorqueSI)) {
+      configuration_.maxTorqueSI = maxTorqueSI;
     }
 
-    double workVoltage;
-    if (getValueFromFile(hardwareNode, "working_voltage", workVoltage)) {
-      configuration_.workVoltage = workVoltage;
+    double jvptPGain;
+    if (getValueFromFile(hardwareNode, "JVPT_P_gain", jvptPGain)) {
+      configuration_.jvptPGain = jvptPGain;
     }
 
-    double speedConstant;
-    if (getValueFromFile(hardwareNode, "speed_constant", speedConstant)) {
-      configuration_.speedConstant = speedConstant;
+    double jvptIGain;
+    if (getValueFromFile(hardwareNode, "JVPT_I_gain", jvptIGain)) {
+      configuration_.jvptIGain = jvptIGain;
     }
 
-    double polePairs;
-    if (getValueFromFile(hardwareNode, "pole_pairs", polePairs)) {
-      configuration_.polePairs = polePairs;
+    double jvptDGain;
+    if (getValueFromFile(hardwareNode, "JVPT_D_gain", jvptDGain)) {
+      configuration_.jvptDGain = jvptDGain;
     }
 
-    double maxCurrentA;
-    if (getValueFromFile(hardwareNode, "max_current", maxCurrentA)) {
-      configuration_.maxCurrentA = maxCurrentA;
+    double softMaxPosLimitSI;
+    if (getValueFromFile(hardwareNode, "soft_max_pos_limit", softMaxPosLimitSI)) {
+      configuration_.softMaxPosLimitSI = softMaxPosLimitSI;
     }
 
-    double nominalCurrentA;
-    if (getValueFromFile(hardwareNode, "nominal_current", nominalCurrentA)) {
-      configuration_.nominalCurrentA = nominalCurrentA;
+    double softMinPosLimitSI;
+    if (getValueFromFile(hardwareNode, "soft_min_pos_limit", softMinPosLimitSI)) {
+      configuration_.softMinPosLimitSI = softMinPosLimitSI;
     }
 
-    double torqueConstantNmA;
-    if (getValueFromFile(hardwareNode, "torque_constant", torqueConstantNmA)) {
-      configuration_.torqueConstantNmA = torqueConstantNmA;
-    }
-
-    int32_t minPosition;
-    if (getValueFromFile(hardwareNode, "min_position", minPosition)) {
-      configuration_.minPosition = minPosition;
-    }
-
-    int32_t maxPosition;
-    if (getValueFromFile(hardwareNode, "max_position", maxPosition)) {
-      configuration_.maxPosition = maxPosition;
-    }
-
-    uint32_t maxProfileVelocity;
-    if (getValueFromFile(hardwareNode, "max_profile_velocity",
-                         maxProfileVelocity)) {
-      configuration_.maxProfileVelocity = maxProfileVelocity;
-    }
-
-    uint32_t quickStopDecel;
-    if (getValueFromFile(hardwareNode, "quick_stop_decel", quickStopDecel)) {
-      configuration_.quickStopDecel = quickStopDecel;
-    }
-
-    uint32_t profileDecel;
-    if (getValueFromFile(hardwareNode, "profile_decel", profileDecel)) {
-      configuration_.profileDecel = profileDecel;
-    }
-
-    uint32_t followErrorWindow;
-    if (getValueFromFile(hardwareNode, "follow_error_window",
-                         followErrorWindow)) {
-      configuration_.followErrorWindow = followErrorWindow;
-    }
-
-    double currentPGainSI;
-    if (getValueFromFile(hardwareNode, "current_p_gain", currentPGainSI)) {
-      configuration_.currentPGainSI = currentPGainSI;
-    }
-
-    double currentIGainSI;
-    if (getValueFromFile(hardwareNode, "current_i_gain", currentIGainSI)) {
-      configuration_.currentIGainSI = currentIGainSI;
-    }
-
-    double positionPGainSI;
-    if (getValueFromFile(hardwareNode, "position_p_gain", positionPGainSI)) {
-      configuration_.positionPGainSI = positionPGainSI;
-    }
-
-    double positionIGainSI;
-    if (getValueFromFile(hardwareNode, "position_i_gain", positionIGainSI)) {
-      configuration_.positionIGainSI = positionIGainSI;
-    }
-
-    double positionDGainSI;
-    if (getValueFromFile(hardwareNode, "position_d_gain", positionDGainSI)) {
-      configuration_.positionDGainSI = positionDGainSI;
-    }
-
-    double velocityPGainSI;
-    if (getValueFromFile(hardwareNode, "velocity_p_gain", velocityPGainSI)) {
-      configuration_.velocityPGainSI = velocityPGainSI;
-    }
-
-    double velcityIGainSI;
-    if (getValueFromFile(hardwareNode, "velocity_i_gain", velcityIGainSI)) {
-      configuration_.velocityIGainSI = velcityIGainSI;
-    }
   }
 }
 

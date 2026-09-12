@@ -91,6 +91,40 @@ struct TxPdoCSTCSPCSV {
 struct TxPdoPVM {
   uint16_t statusword_;
   int32_t demandVelocity_;
+  int32_t actualVelocity_;
 } __attribute__((packed));
+
+struct TxPdoJVPT {
+  uint16_t statusword_;
+  int32_t estJointTorque_;
+  int32_t actualJointVelocity_;
+  int32_t actualJointPosition_;
+  int32_t actualJointCurrent_;
+  int32_t velocityDemand;
+  int32_t currentDemand;
+  int32_t positionDemand;
+  int16_t temeperature_motor;
+  int16_t temeperature_psu;
+  uint16_t i2tmotor;
+  uint16_t i2tpsu;
+} __attribute__((packed));
+
+
+
+struct TxPdoFreeze {
+  uint16_t statusword_;
+  int32_t estJointTorque_;
+  int32_t actualJointVelocity_;
+  int32_t actualJointPosition_;
+  int32_t actualJointCurrent_;
+  int32_t velocityDemand;
+  int32_t currentDemand;
+  int32_t positionDemand;
+  int16_t temeperature_motor;
+  int16_t temeperature_psu;
+  uint16_t i2tmotor;
+  uint16_t i2tpsu;
+} __attribute__((packed));
+
 
 }  // namespace maxon

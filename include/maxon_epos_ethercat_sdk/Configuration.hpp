@@ -41,6 +41,8 @@
 #include "maxon_epos_ethercat_sdk/PdoTypeEnum.hpp"
 
 namespace maxon {
+
+
 class Configuration {
  public:
   std::vector<ModeOfOperationEnum> modesOfOperation = {ModeOfOperationEnum::NA};
@@ -56,17 +58,18 @@ class Configuration {
   int32_t positionEncoderResolution{1};
   bool useRawCommands{false};
   double gearRatio{1};
-  double motorConstant{1};
   double workVoltage{48.0};
   double speedConstant{0};
   double polePairs{11};
   double nominalCurrentA{0};
   double torqueConstantNmA{0};
   double maxCurrentA{0};
+  double maxGearboxInputVelocityRPM{0};
   int32_t minPosition{0};
   int32_t maxPosition{0};
   uint32_t maxProfileVelocity{0};
   uint32_t quickStopDecel{10000};
+  uint32_t profileAccel{1000};
   uint32_t profileDecel{10000};
   uint32_t followErrorWindow{2000};
   double currentPGainSI{1.171880};
@@ -76,6 +79,21 @@ class Configuration {
   double positionDGainSI{0.016};
   double velocityPGainSI{0.02};
   double velocityIGainSI{0.5};
+
+  // ANYDRIVE5 specific setings
+
+  double maxTorqueSI{0};
+  double jvptPGain{0};
+  double jvptIGain{0};
+  double jvptDGain{0};
+
+  double softMaxPosLimitSI{0};
+  double softMinPosLimitSI{0};
+
+  uint32_t velocityUnitSetting{0};
+  double velocityFactorConfiguredUnitToRadPerSec{0};
+
+
 
  public:
   // stream operator

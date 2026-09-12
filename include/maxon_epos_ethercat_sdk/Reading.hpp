@@ -84,6 +84,26 @@ class Reading {
   double getAnalogInput() const;
   double getAgeOfLastReadingInMicroseconds() const;
   double getBusVoltage() const;
+  double getDemandPosition() const;
+
+  //Anydrive5 user unit get methods
+
+  double getActualJointPosition() const;
+  double getActualJointVelocity() const;
+  double getEstJointTorque() const;
+  double getActualJointCurrent() const;
+
+  double getDemandedJointPosition() const;
+  double getDemandedJointVelocity() const;
+  double getDemandedJointCurrent() const;
+
+  double getMotorTemperature() const;
+  double getPsuTemperature() const;
+
+  double getI2tMotor() const;
+  double getI2tPSU() const;
+
+  double SI_pos_to_inc{4096 / (2 * M_PI)};
 
   /*!
    * Other get methods
@@ -112,6 +132,8 @@ class Reading {
 
   void setBusVoltage(uint32_t busVoltage);
 
+  void setPositionDemand(int32_t positionDemand);
+
   void setTimePointNow();
 
   void setPositionFactorIntegerToRad(double positionFactor);
@@ -119,6 +141,32 @@ class Reading {
   void setCurrentFactorIntegerToAmp(double currentFactor);
 
   void setTorqueFactorIntegerToNm(double torqueFactor);
+
+  //Anydrive5 specific RAW reading methods
+
+  void setActualJointPositionRAW(int32_t actualJointPosition);
+
+  void setActualJointVelocityRAW(int32_t actualJointVelocity);
+
+  void setEstJointTorqueRAW(int32_t estJointTorque);
+
+  void setActualJointCurrentRAW(int32_t actualJointCurrent);
+
+  void setDemandedJointPositionRAW(int32_t demandedJointPosition);
+
+  void setDemandedJointVelocityRAW(int32_t demandedJointVelocity);
+
+  void setDemandedJointCurrentRAW(int32_t demandedJointCurrent);
+
+  void setMotorTemperatureRAW(int16_t motorTemperature);
+
+  void setPsuTemperatureRAW(int16_t psuTemperature);
+
+  void setI2tMotorRAW(int16_t i2tMotor);
+
+  void setI2tPSURAW(int16_t i2tPSU);
+
+  //
 
  protected:
   int32_t actualPosition_{0};
@@ -129,10 +177,27 @@ class Reading {
   int16_t analogInput_{0};
   int16_t actualCurrent_{0};
   uint32_t busVoltage_{0};
+  int32_t positionDemand_{0};
+
+  //Anydrive5 specific RAW reading variables
+  int32_t actualJointPosition_{0};
+  int32_t actualJointVelocity_{0};
+  int32_t estJointTorque_{0};
+  int32_t actualJointCurrent_{0};
+
+  int32_t demandedJointPosition_{0};
+  int32_t demandedJointVelocity_{0};
+  int32_t demandedJointCurent_{0};
+
+  int16_t motorTemperature_{0};
+  int16_t psuTemperature_{0};
+
+  int16_t i2tMotor_{0};
+  int16_t i2tPSU_{0};
+
 
   double positionFactorIntegerToRad_{1};
-  static constexpr double velocityFactorMicroRPMToRadPerSec_ =
-      2.0 * M_PI / (60.0 * 1e6);
+  double velocityFactorConfiguredUnitToRadPerSec_ = 2.0 * M_PI / (60.0); //default reading: rpm
   double currentFactorIntegerToAmp_{1};
   double torqueFactorIntegerToNm_{1};
 

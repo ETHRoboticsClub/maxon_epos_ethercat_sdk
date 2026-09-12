@@ -31,7 +31,7 @@
 // clang-format on
 
 #include "maxon_epos_ethercat_sdk/Statusword.hpp"
-
+#include <bitset>
 namespace maxon {
 std::ostream& operator<<(std::ostream& os, const Statusword& statusword) {
   using std::setfill;
@@ -75,16 +75,14 @@ std::ostream& operator<<(std::ostream& os, const Statusword& statusword) {
      << "| " << setw(gapSize2) << statusword.targetReached_ << "|\n"
      << setw(25) << "| Internal limit active:"
      << "| " << setw(gapSize2) << statusword.internalLimitActive_ << "|\n"
-     <<
-      // setw(25)<<"| Following error:"<<"|
-      // "<<setw(gapSize2)<<statusword.followingError_<<"| \n"<< // mode of
-      // operation specific
+     << setw(25)<<"| Following error:"<<"|" 
+     <<setw(gapSize2)<<statusword.followingError_<<"| \n"<<
       setw(25) << setfill('-') << "|" << setw(gapSize2 + 2) << "+"
      << "|\n"
      << setfill(' ') << setw(25) << "| Resulting Drive State:"
      << "| " << setw(gapSize2) << driveStateString << "|\n"
      << setw(25) << setfill('-') << "|" << setw(gapSize2 + 2) << "+"
-     << "|" <<
+     << "|" << std::bitset<16>(statusword.rawStatusword_) <<
 
       std::noboolalpha << std::right << setfill(' ');
 
@@ -161,6 +159,15 @@ std::string Statusword::getDriveStateString() const {
     default:
       return "N/A";
   }
+}
+
+bool Statusword::homingFinished() {
+  bool success = true;
+
+  success &= static_cast<bool>(!(rawStatusword_ & (1 << 13)));
+  success &= static_cast<bool>((rawStatusword_ & (1 << 12)));
+
+  return success;
 }
 
 }  // namespace maxon
