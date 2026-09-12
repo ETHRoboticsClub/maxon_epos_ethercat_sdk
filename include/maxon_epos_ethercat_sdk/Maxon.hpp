@@ -168,6 +168,10 @@ class Maxon : public ecat_master::EthercatDevice {
   void addErrorToReading(const ErrorType& errorType);
 
  public:
+  // SDO-read the EPOS4 error code (0x603F) into `code` and record it in the
+  // reading's fault history. No logging; false when the read fails. Blocks
+  // the mailbox: call from a NON-RT thread only.
+  bool readErrorCode(uint16_t& code);
   void printErrorCode();
   void printDiagnosis();
   // Consume the fault-edge flag set by updateRead() and do the SDO read of

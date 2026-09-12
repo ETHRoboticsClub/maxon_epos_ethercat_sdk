@@ -73,21 +73,36 @@ void Maxon::addErrorToReading(const ErrorType& errorType) {
 }
 
 /*
+** Read error code
+** Reads object 0x603F into `code` and stores it into the reading (so
+** getLastFault()/getFaults() expose the real code to the application - without
+** this addFault() is never called and getLastFault() always returns 0).
+** Returns false when the SDO read fails; `code` is then untouched. Does not
+** log, so the caller decides the severity (see printErrorCode() and the
+** boot-fault scan in standalone.cpp).
+*/
+bool Maxon::readErrorCode(uint16_t& code) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  uint16_t errorcode = 0;
+  if (!sendSdoRead(OD_INDEX_ERROR_CODE, 0x00, false, errorcode)) {
+    return false;
+  }
+  {
+    std::lock_guard<std::recursive_mutex> readingLock(readingMutex_);
+    reading_.addFault(errorcode);
+  }
+  code = errorcode;
+  return true;
+}
+
+/*
 ** Print error code
-** Reads object 0x603F, stores it into the reading (so getLastFault()/
-** getFaults() expose the real code to the application - without this addFault()
-** is never called and getLastFault() always returns 0) and logs the decoded
-** meaning. See firmware documentation for the full code table.
+** readErrorCode() plus a log line with the decoded meaning. See firmware
+** documentation for the full code table.
 */
 void Maxon::printErrorCode() {
   uint16_t errorcode = 0;
-  bool error_read_success =
-      sendSdoRead(OD_INDEX_ERROR_CODE, 0x00, false, errorcode);
-  if (error_read_success) {
-    {
-      std::lock_guard<std::recursive_mutex> lock(readingMutex_);
-      reading_.addFault(errorcode);
-    }
+  if (readErrorCode(errorcode)) {
     MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::printErrorCode] '"
                       << name_ << "' error code 0x" << std::hex << std::setw(4)
                       << std::setfill('0') << errorcode << std::dec << " - "
