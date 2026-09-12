@@ -83,7 +83,11 @@ bool Maxon::startup() {
                                 address_);
   // bus_->syncDistributedClock0(address_, true, timeStep_, timeStep_ / 2.f); //
   // Might not need
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  //
+  // No settle sleep here or at the end: every SDO below is verified by a
+  // read-back, and a drive not ready for mailbox traffic fails that loudly
+  // ("hardware configuration ... not successful") rather than silently. The two
+  // 100 ms sleeps this replaces cost 4.4 s of the 22-drive serial start.
 
   // PDO mapping
   success &= mapPdos(rxPdoTypeEnum_, txPdoTypeEnum_);
@@ -149,7 +153,6 @@ bool Maxon::startup() {
         << name_ << "' not successful!");
     addErrorToReading(ErrorType::ConfigurationError);
   }
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
   return success;
 }
 

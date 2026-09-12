@@ -134,6 +134,10 @@ class Maxon : public ecat_master::EthercatDevice {
  protected:
   void engagePdoStateMachine();
   bool mapPdos(RxPdoTypeEnum rxPdoTypeEnum, TxPdoTypeEnum txPdoTypeEnum);
+  // True when the drive already holds exactly this PDO assignment and mapping,
+  // so mapPdos can skip rewriting it. Reads only.
+  bool pdoMappingIsCurrent(uint16_t assignment, uint16_t mapping,
+                           const uint32_t* objects, uint8_t count);
   bool configParam();
   Controlword getNextStateTransitionControlword(
       const DriveState& requestedDriveState,

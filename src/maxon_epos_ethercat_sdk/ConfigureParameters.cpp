@@ -37,6 +37,24 @@
 #include "maxon_epos_ethercat_sdk/ObjectDictionary.hpp"
 
 namespace maxon {
+// PDO-mapping writes cost ~13 ms each on the EPOS4 against ~2 ms for an ordinary
+// parameter (measured 2026-09-12: ~300 ms of the ~700 ms per-drive startup), and
+// every start rewrote the mapping the drive already held. Reading it back is
+// ~8 SDOs at the fast rate, so check first and write only on a difference.
+bool Maxon::pdoMappingIsCurrent(uint16_t assignment, uint16_t mapping,
+                                const uint32_t* objects, uint8_t count) {
+  uint8_t n = 0;
+  uint16_t assigned = 0;
+  if (!sendSdoRead(assignment, 0x00, false, n) || n != 1) return false;
+  if (!sendSdoRead(assignment, 0x01, false, assigned) || assigned != mapping) return false;
+  if (!sendSdoRead(mapping, 0x00, false, n) || n != count) return false;
+  for (uint8_t i = 0; i < count; ++i) {
+    uint32_t object = 0;
+    if (!sendSdoRead(mapping, i + 1, false, object) || object != objects[i]) return false;
+  }
+  return true;
+}
+
 bool Maxon::mapPdos(RxPdoTypeEnum rxPdoTypeEnum, TxPdoTypeEnum txPdoTypeEnum) {
   uint8_t subIndex;
 
@@ -172,6 +190,20 @@ bool Maxon::mapPdos(RxPdoTypeEnum rxPdoTypeEnum, TxPdoTypeEnum txPdoTypeEnum) {
       MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::mapPdos] Rx Pdo: "
                        << "Cyclic Joint Velocity Position Torque Mode");
 
+      std::array<uint32_t, 5> objects{
+          (OD_INDEX_TARGET_JOINT_TORQUE << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
+          (OD_INDEX_TARGET_JOINT_POSITION << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
+          (OD_INDEX_TARGET_JOINT_VELOCITY << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
+          (OD_INDEX_CONTROLWORD << 16) | (0x00 << 8) | sizeof(uint16_t) * 8,
+          (OD_INDEX_MODES_OF_OPERATION << 16) | (0x00 << 8) | sizeof(int8_t) * 8,
+      };
+      if (pdoMappingIsCurrent(OD_INDEX_RX_PDO_ASSIGNMENT, OD_INDEX_RX_PDO_MAPPING_3,
+                              objects.data(), objects.size())) {
+        MELO_DEBUG_STREAM("[maxon_epos_ethercat_sdk:Maxon::mapPdos] '" << name_
+                          << "' Rx mapping already current; not rewritten.");
+        break;
+      }
+
       // Disable PDO
       rxSuccess &= sdoVerifyWrite(OD_INDEX_RX_PDO_ASSIGNMENT, 0x00, false,
                                   static_cast<uint8_t>(0),
@@ -186,14 +218,6 @@ bool Maxon::mapPdos(RxPdoTypeEnum rxPdoTypeEnum, TxPdoTypeEnum txPdoTypeEnum) {
                                   configuration_.configRunSdoVerifyTimeout);
 
       // Write objects
-      std::array<uint32_t, 5> objects{
-          (OD_INDEX_TARGET_JOINT_TORQUE << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
-          (OD_INDEX_TARGET_JOINT_POSITION << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
-          (OD_INDEX_TARGET_JOINT_VELOCITY << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
-          (OD_INDEX_CONTROLWORD << 16) | (0x00 << 8) | sizeof(uint16_t) * 8,
-          (OD_INDEX_MODES_OF_OPERATION << 16) | (0x00 << 8) | sizeof(int8_t) * 8,
-      };
-
       subIndex = 0;
       for (const auto& objectIndex : objects) {
         subIndex += 1;
@@ -403,21 +427,6 @@ bool Maxon::mapPdos(RxPdoTypeEnum rxPdoTypeEnum, TxPdoTypeEnum txPdoTypeEnum) {
       MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::mapPdos] Tx Pdo: "
                        << "Cyclic Joint Velocity Position Torque Mode");
 
-      // Disable PDO
-      txSuccess &= sdoVerifyWrite(OD_INDEX_TX_PDO_ASSIGNMENT, 0x00, false,
-                                  static_cast<uint8_t>(0),
-                                  configuration_.configRunSdoVerifyTimeout);
-
-      txSuccess &= sdoVerifyWrite(OD_INDEX_TX_PDO_MAPPING_3, 0x00, false,
-                                  static_cast<uint8_t>(0),
-                                  configuration_.configRunSdoVerifyTimeout);
-
-      // Write mapping
-      txSuccess &= sdoVerifyWrite(OD_INDEX_TX_PDO_ASSIGNMENT, 0x01, false,
-                                  OD_INDEX_TX_PDO_MAPPING_3,
-                                  configuration_.configRunSdoVerifyTimeout);
-
-      // Write objects
       // TxPDO is 6 mapped objects: the 5 core feedbacks + motor temperature
       // (0x3201/0x02). Power-stage (psu) temperature was dropped from the cyclic
       // PDO to leave headroom under the "<=8 PDOs per direction" bound. Array
@@ -438,7 +447,28 @@ bool Maxon::mapPdos(RxPdoTypeEnum rxPdoTypeEnum, TxPdoTypeEnum txPdoTypeEnum) {
           // (OD_INDEX_I2T << 16) | (0x01 << 8) | sizeof(uint16_t) * 8,
           // (OD_INDEX_I2T << 16) | (0x02 << 8) | sizeof(uint16_t) * 8,
       };
+      if (pdoMappingIsCurrent(OD_INDEX_TX_PDO_ASSIGNMENT, OD_INDEX_TX_PDO_MAPPING_3,
+                              objects.data(), objects.size())) {
+        MELO_DEBUG_STREAM("[maxon_epos_ethercat_sdk:Maxon::mapPdos] '" << name_
+                          << "' Tx mapping already current; not rewritten.");
+        break;
+      }
 
+      // Disable PDO
+      txSuccess &= sdoVerifyWrite(OD_INDEX_TX_PDO_ASSIGNMENT, 0x00, false,
+                                  static_cast<uint8_t>(0),
+                                  configuration_.configRunSdoVerifyTimeout);
+
+      txSuccess &= sdoVerifyWrite(OD_INDEX_TX_PDO_MAPPING_3, 0x00, false,
+                                  static_cast<uint8_t>(0),
+                                  configuration_.configRunSdoVerifyTimeout);
+
+      // Write mapping
+      txSuccess &= sdoVerifyWrite(OD_INDEX_TX_PDO_ASSIGNMENT, 0x01, false,
+                                  OD_INDEX_TX_PDO_MAPPING_3,
+                                  configuration_.configRunSdoVerifyTimeout);
+
+      // Write objects
       subIndex = 0;
       for (const auto& objectIndex : objects) {
         subIndex += 1;
