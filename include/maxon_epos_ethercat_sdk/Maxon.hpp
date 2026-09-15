@@ -40,6 +40,7 @@
 #include <ethercat_sdk_master/EthercatDevice.hpp>
 #include <mutex>
 #include <string>
+#include <functional>
 
 #include "maxon_epos_ethercat_sdk/Command.hpp"
 #include "maxon_epos_ethercat_sdk/Controlword.hpp"
@@ -118,11 +119,42 @@ class Maxon : public ecat_master::EthercatDevice {
 
   //homing
 
-  bool doHoming();
   bool storeParam();
 
+  struct PersistentZeroResult {
+    enum class Reference { Unchanged, Applied, Unknown } reference{Reference::Unknown};
+    enum class Persistence { NotAttempted, Persisted, Failed, Unknown } persistence{Persistence::NotAttempted};
+    uint32_t serial{0};
+    std::string detail;
+  };
+
+  // Deliberate maintenance operation. Method 37 performs no commanded motion:
+  // it makes the current physical position the zero, verifies a fresh homing
+  // completion edge and zero readback, restores the configured JVPT gains, and
+  // only then issues CiA-301 save-all. One call is one attempt; callers must not
+  // retry an indeterminate result automatically.
+  PersistentZeroResult referenceCurrentPositionAsZero(
+      const std::function<bool()>& cancelled = [] { return false; });
+  PersistentZeroResult persistReferencedZero(
+      const std::function<bool()>& cancelled = [] { return false; });
+  bool readDeviceSerialNumber(uint32_t& serial);
 
  protected:
+  // Narrow hardware boundary for the persistent-zero protocol. Production uses
+  // the real SDO/PDO path; tests override only these external observations while
+  // executing the same transaction algorithm.
+  virtual bool persistentZeroReadSerial(uint32_t& serial);
+  virtual bool persistentZeroVerifyMethod(int8_t method);
+  virtual bool persistentZeroVerifyHomePosition(int32_t position);
+  virtual bool persistentZeroReadDisplayedMode(int8_t& mode);
+  virtual bool persistentZeroReadActualPosition(int32_t& position);
+  virtual bool persistentZeroVerifyJvptGain(uint8_t subindex, uint32_t value);
+  virtual bool persistentZeroStoreParameters();
+  virtual Reading persistentZeroReading() const;
+  virtual void persistentZeroStageCommand(const Command& command);
+  virtual void persistentZeroSetHomingStart(bool start);
+  virtual void persistentZeroSleepFor(std::chrono::milliseconds duration);
+
   bool stateTransitionViaSdo(const StateTransition& stateTransition);
 
   // PDO
@@ -220,5 +252,6 @@ class Maxon : public ecat_master::EthercatDevice {
   mutable std::recursive_mutex stagedCommandMutex_;  // TODO required?
   mutable std::recursive_mutex readingMutex_;        // TODO required?
   mutable std::recursive_mutex mutex_;               // TODO: change name!!!!
+  std::mutex persistentZeroMutex_;
 };
 }  // namespace maxon

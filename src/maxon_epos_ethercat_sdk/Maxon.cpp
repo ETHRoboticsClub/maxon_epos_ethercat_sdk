@@ -492,6 +492,7 @@ void Maxon::updateRead() {
 }
 //this is a lock safe function already usibg the mutex lock
 void Maxon::stageCommand(const Command& command) {
+  std::lock_guard<std::recursive_mutex> deviceLock(mutex_);
   std::lock_guard<std::recursive_mutex> lock(stagedCommandMutex_);
   stagedCommand_ = command;
   // MELO_WARN_STREAM("Staged Command: " << stagedCommand_.getTargetVelocity());
@@ -889,117 +890,275 @@ bool Maxon::storeParam() {
   return sendSdoWrite(OD_STORE_PARAM, 0x01, false, signature);
 }
 
-
-bool Maxon::doHoming() {
-  // Method 37 ("Actual position") sets the reported position (0x6064) to the
-  // Home Position (0x30B0) at the joint's current physical spot — it performs NO
-  // motion. We exploit that to apply the URDF zero through the ONLY object the
-  // firmware actually honours here (0x30B0): writing
-  //     0x30B0 = current_raw - homingOffset
-  // makes Method 37 stamp 0x6064 := 0x30B0, after which the mapping is
-  //     reported = raw - homingOffset   (for ALL positions, not just this spot).
-  // `homingOffset` (YAML `homing_offset`, counts) is the raw encoder reading at
-  // the URDF reference pose, P_ref, from measure_drive_offsets.py. At the
-  // reference pose raw == P_ref == homingOffset, so the joint reports ~0. This
-  // is jig-free (works regardless of the physical pose during homing) and needs
-  // NO NVM store / power-cycle — the drive-level Home Offset (0x3673) is NOT used
-  // because Method 37 ignores it on this firmware.
-  const int8_t requestedHomingMethod = static_cast<int8_t>(37);
-
-  // GUARD against double-applying the offset on a warm restart. The Method-37
-  // coordinate shift lives in the DRIVE and survives program restarts (only a
-  // power-cycle clears it). If we re-homed unconditionally, 0x6064 would already
-  // report raw - offset, and subtracting again would walk the zero off by
-  // another homing_offset on every restart. The caller put the drive in
-  // HomingMode >200 ms ago, so statusword bit 12 ("homing attained") is valid
-  // here: set means a homing already ran this power cycle -> keep the existing
-  // frame and skip. (This also avoids the stale-bit-12 race in the completion
-  // poll below, which can only trigger when bit 12 starts out set.)
-  {
-    Statusword entryStatus = getReading().getStatusword();
-    if (entryStatus.homingFinished()) {
-      MELO_WARN_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] '" << name_
-                       << "': expected=unhomed drive (fresh power-up), got=homing-attained "
-                       "already set (warm restart), fallback=SKIP re-zero, keep the existing "
-                       "coordinate frame. Power-cycle the drives to apply a changed YAML "
-                       "homing_offset.");
-      return true;
-    }
-  }
-
-  // Read current raw position (0x6064); the runtime home position written to
-  // 0x30B0 is this minus the YAML offset (P_ref).
-  int32_t currentRaw = 0;
-  if (!sendSdoRead(OD_INDEX_JOINT_POSITION_ACTUAL, 0x00, false, currentRaw)) {
-    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Failed to read current position (0x6064)."
-                      << " Cannot derive runtime home position for Method 37.");
-    return false;
-  }
-  const int32_t runtimeHomePosition = currentRaw - configuration_.homingOffset;
-
-  bool success = true;
-  success &= sdoVerifyWrite(OD_INDEX_HOME_METHOD, 0x00, false,
-                            requestedHomingMethod,
-                            configuration_.configRunSdoVerifyTimeout);
-  success &= sdoVerifyWrite(OD_INDEX_HOME_POSITION, 0x00, false,
-                            runtimeHomePosition,
-                            configuration_.configRunSdoVerifyTimeout);
-
-  int8_t appliedHomingMethod = 0;
-  int32_t appliedHomePosition = 0;
-  success &= sendSdoRead(OD_INDEX_HOME_METHOD, 0x00, false, appliedHomingMethod);
-  success &= sendSdoRead(OD_INDEX_HOME_POSITION, 0x00, false, appliedHomePosition);
-
-  if (!success || appliedHomingMethod != 37 || appliedHomePosition != runtimeHomePosition) {
-    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Failed to apply Method 37 settings. "
-                      << "Applied method=" << static_cast<int>(appliedHomingMethod)
-                      << ", applied home_position(0x30B0)=" << appliedHomePosition
-                      << ", runtime home_position=" << runtimeHomePosition);
-    return false;
-  }
-
-  MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::doHoming] Using Method 37 with 0x30B0="
-                   << appliedHomePosition << " (= current raw " << currentRaw
-                   << " - homing_offset " << configuration_.homingOffset
-                   << "). No motion; after homing the joint reports raw - homing_offset.");
-
-  // change the operation mode to homing
-  // start the homing process by setting the controlword
-  // for homing operation start controlword bit 4 -> 1
-  Command command;
-  command.setModeOfOperation(maxon::ModeOfOperationEnum::HomingMode);
-  stageCommand(command);
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
-
-  // Ensure a clean rising edge on bit 4 for every homing attempt.
-  controlword_.homingOperationStart_ = false;
-  std::this_thread::sleep_for(std::chrono::milliseconds(20));
-  controlword_.homingOperationStart_ = true;
-
-  /// wait for the homing to finish
-  bool homing_finished = false;
-  uint count = 0;
-
-  while (!homing_finished && (count < 100)) {
-    MELO_INFO_STREAM("homing in progress");
-    Reading reading = getReading();
-    Statusword status = reading.getStatusword();
-    MELO_INFO_STREAM("Statusword:" << status);
-    homing_finished = status.homingFinished();
-    count++;
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  }
-
-  if (homing_finished) {
-    MELO_INFO_STREAM("homing finished");
-    controlword_.homingOperationStart_ = false;
-    return true;
-  } else {
-    MELO_ERROR_STREAM("Maximum number of retries reached");
-    controlword_.homingOperationStart_ = false;
-    return false;
-  }
+bool Maxon::readDeviceSerialNumber(uint32_t& serial) {
+  return sendSdoRead(OD_IDENTITY_OBJECT, 0x04, false, serial);
 }
+
+bool Maxon::persistentZeroReadSerial(uint32_t& serial) {
+  return readDeviceSerialNumber(serial);
+}
+
+bool Maxon::persistentZeroVerifyMethod(int8_t method) {
+  return sdoVerifyWrite(OD_INDEX_HOME_METHOD, 0x00, false, method,
+                        configuration_.configRunSdoVerifyTimeout);
+}
+
+bool Maxon::persistentZeroVerifyHomePosition(int32_t position) {
+  return sdoVerifyWrite(OD_INDEX_HOME_POSITION, 0x00, false, position,
+                        configuration_.configRunSdoVerifyTimeout);
+}
+
+bool Maxon::persistentZeroReadDisplayedMode(int8_t& mode) {
+  return sendSdoRead(OD_INDEX_MODES_OF_OPERATION_DISPLAY, 0x00, false, mode);
+}
+
+bool Maxon::persistentZeroReadActualPosition(int32_t& position) {
+  return sendSdoRead(OD_INDEX_JOINT_POSITION_ACTUAL, 0x00, false, position);
+}
+
+bool Maxon::persistentZeroVerifyJvptGain(uint8_t subindex, uint32_t value) {
+  return sdoVerifyWrite(OD_INDEX_JVPT_PARAMETERS, subindex, false, value,
+                        configuration_.configRunSdoVerifyTimeout);
+}
+
+bool Maxon::persistentZeroStoreParameters() { return storeParam(); }
+
+Reading Maxon::persistentZeroReading() const { return getReading(); }
+
+void Maxon::persistentZeroStageCommand(const Command& command) {
+  stageCommand(command);
+}
+
+void Maxon::persistentZeroSetHomingStart(bool start) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  controlword_.homingOperationStart_ = start;
+}
+
+void Maxon::persistentZeroSleepFor(std::chrono::milliseconds duration) {
+  std::this_thread::sleep_for(duration);
+}
+
+Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAsZero(
+    const std::function<bool()>& cancelled) {
+  std::lock_guard<std::mutex> operationLock(persistentZeroMutex_);
+  PersistentZeroResult out;
+  const auto restoreSafeJvpt = [this]() {
+    Command safe;
+    safe.setModeOfOperation(ModeOfOperationEnum::CyclicJVPTMode);
+    safe.setTargetJointPosition(persistentZeroReading().getActualJointPosition());
+    safe.setTargetJointVelocity(0.0);
+    safe.setTargetJointTorque(0.0);
+    persistentZeroStageCommand(safe);
+  };
+  if (cancelled()) {
+    out.reference = PersistentZeroResult::Reference::Unchanged;
+    out.detail = "cancelled before mutation";
+    return out;
+  }
+  if (!persistentZeroReadSerial(out.serial) || out.serial == 0) {
+    out.detail = "drive serial identity (0x1018:04) is unavailable";
+    return out;
+  }
+
+  if (persistentZeroReading().getDriveState() != DriveState::SwitchOnDisabled) {
+    out.reference = PersistentZeroResult::Reference::Unchanged;
+    out.detail = "drive was not SwitchOnDisabled before Method-37 preparation";
+    return out;
+  }
+
+  const int8_t method = 37;
+  const int32_t homePosition = 0;
+  if (cancelled()) {
+    out.reference = PersistentZeroResult::Reference::Unchanged;
+    out.detail = "cancelled before Method-37 configuration";
+    return out;
+  }
+  bool configured = persistentZeroVerifyMethod(method);
+  if (cancelled()) {
+    out.reference = PersistentZeroResult::Reference::Unchanged;
+    out.detail = "cancelled after method selection but before Home Position mutation";
+    return out;
+  }
+  configured &= persistentZeroVerifyHomePosition(homePosition);
+  if (!configured) {
+    out.detail = "failed to configure Method 37 with Home Position 0";
+    return out;
+  }
+
+  if (cancelled()) {
+    out.reference = PersistentZeroResult::Reference::Unchanged;
+    out.detail = "cancelled before Method-37 trigger";
+    return out;
+  }
+
+  Command command;
+  command.setModeOfOperation(ModeOfOperationEnum::HomingMode);
+  if (cancelled()) {
+    out.reference = PersistentZeroResult::Reference::Unchanged;
+    out.detail = "cancelled before HomingMode mutation";
+    return out;
+  }
+  persistentZeroStageCommand(command);
+  bool homingMode = false;
+  for (unsigned i = 0; i < 20; ++i) {
+    int8_t displayedMode = 0;
+    if (persistentZeroReadDisplayedMode(displayedMode) &&
+        displayedMode == static_cast<int8_t>(ModeOfOperationEnum::HomingMode)) {
+      homingMode = true;
+      break;
+    }
+    persistentZeroSleepFor(std::chrono::milliseconds(10));
+  }
+  if (!homingMode) {
+    restoreSafeJvpt();
+    out.reference = PersistentZeroResult::Reference::Unchanged;
+    out.detail = "drive did not confirm HomingMode on 0x6061";
+    return out;
+  }
+
+  // Require a new completion edge. A pre-existing attained bit cannot prove
+  // this operation ran, and must never be accepted as success.
+  persistentZeroSetHomingStart(false);
+  bool sawClear = false;
+  for (unsigned i = 0; i < 20; ++i) {
+    if (!persistentZeroReading().getStatusword().homingFinished()) {
+      sawClear = true;
+      break;
+    }
+    persistentZeroSleepFor(std::chrono::milliseconds(10));
+  }
+  if (!sawClear) {
+    restoreSafeJvpt();
+    out.reference = PersistentZeroResult::Reference::Unchanged;
+    out.detail = "homing-attained did not clear; no fresh Method-37 edge";
+    return out;
+  }
+
+  if (cancelled()) {
+    restoreSafeJvpt();
+    out.reference = PersistentZeroResult::Reference::Unchanged;
+    out.detail = "cancelled before Method-37 start edge";
+    return out;
+  }
+
+  const auto sampleBeforeTrigger = persistentZeroReading().getLastReadingTimePoint();
+  persistentZeroSetHomingStart(true);
+  bool finished = false;
+  for (unsigned i = 0; i < 100; ++i) {
+    if (cancelled()) {
+      persistentZeroSetHomingStart(false);
+      out.reference = PersistentZeroResult::Reference::Unknown;
+      out.detail = "cancelled after Method-37 trigger; reference outcome is unknown";
+      return out;
+    }
+    const auto reading = persistentZeroReading();
+    if (reading.getDriveState() != DriveState::SwitchOnDisabled) {
+      persistentZeroSetHomingStart(false);
+      out.reference = PersistentZeroResult::Reference::Unknown;
+      out.detail = "drive left SwitchOnDisabled during Method 37";
+      return out;
+    }
+    if ((reading.getRawStatusword() & (1u << 13)) != 0) {
+      persistentZeroSetHomingStart(false);
+      out.reference = PersistentZeroResult::Reference::Unknown;
+      out.detail = "drive reported a Method-37 homing error";
+      return out;
+    }
+    const bool newerThanTrigger =
+        reading.getLastReadingTimePoint() > sampleBeforeTrigger;
+    const bool referenced = (reading.getRawStatusword() & (1u << 15)) != 0;
+    if (newerThanTrigger && reading.getStatusword().homingFinished() && referenced) {
+      finished = true;
+      break;
+    }
+    persistentZeroSleepFor(std::chrono::milliseconds(20));
+  }
+  persistentZeroSetHomingStart(false);
+  if (!finished) {
+    out.reference = PersistentZeroResult::Reference::Unknown;
+    out.persistence = PersistentZeroResult::Persistence::NotAttempted;
+    out.detail = "Method-37 completion was not observed before the deadline";
+    return out;
+  }
+
+  const auto feedback = persistentZeroReading();
+  const double ageUs = feedback.getAgeOfLastReadingInMicroseconds();
+  int32_t reportedPosition = 1;
+  if (!std::isfinite(ageUs) || ageUs < 0.0 || ageUs > 100000.0 ||
+      !persistentZeroReadActualPosition(reportedPosition)) {
+    out.reference = PersistentZeroResult::Reference::Unknown;
+    out.persistence = PersistentZeroResult::Persistence::NotAttempted;
+    out.detail = "fresh resulting position feedback could not be verified";
+    return out;
+  }
+  if (reportedPosition != 0) {
+    out.reference = PersistentZeroResult::Reference::Unknown;
+    out.persistence = PersistentZeroResult::Persistence::NotAttempted;
+    out.detail = "Method 37 completed but 0x6064 did not read back zero";
+    return out;
+  }
+  out.reference = PersistentZeroResult::Reference::Applied;
+  if (persistentZeroReading().getDriveState() != DriveState::SwitchOnDisabled) {
+    out.reference = PersistentZeroResult::Reference::Unknown;
+    out.detail = "zero read back but the drive did not return to SwitchOnDisabled";
+    return out;
+  }
+  out.detail = "current position referenced as zero in RAM; drive returned to SwitchOnDisabled";
+  return out;
+}
+
+Maxon::PersistentZeroResult Maxon::persistReferencedZero(
+    const std::function<bool()>& cancelled) {
+  std::lock_guard<std::mutex> operationLock(persistentZeroMutex_);
+  PersistentZeroResult out;
+  if (!persistentZeroReadSerial(out.serial) || out.serial == 0) {
+    out.persistence = PersistentZeroResult::Persistence::NotAttempted;
+    out.detail = "drive serial identity (0x1018:04) is unavailable";
+    return out;
+  }
+  if (cancelled() || persistentZeroReading().getDriveState() != DriveState::SwitchOnDisabled) {
+    out.persistence = PersistentZeroResult::Persistence::NotAttempted;
+    out.detail = "save-all requires an uncancelled SwitchOnDisabled drive";
+    return out;
+  }
+
+  // Save-all includes controller parameters. Reassert and verify the configured
+  // baseline immediately before 0x1010 so a temporary damping/policy gain can
+  // never become the next boot's baseline.
+  const uint32_t baselineP = static_cast<uint32_t>(configuration_.jvptPGain);
+  const uint32_t baselineD = static_cast<uint32_t>(configuration_.jvptDGain);
+  if (cancelled()) {
+    out.persistence = PersistentZeroResult::Persistence::NotAttempted;
+    out.detail = "cancelled before configured gain baseline restoration";
+    return out;
+  }
+  bool baseline = persistentZeroVerifyJvptGain(0x01, baselineP);
+  if (cancelled()) {
+    out.persistence = PersistentZeroResult::Persistence::NotAttempted;
+    out.detail = "cancelled after P baseline restoration; save-all not attempted";
+    return out;
+  }
+  baseline &= persistentZeroVerifyJvptGain(0x03, baselineD);
+  if (!baseline) {
+    out.persistence = PersistentZeroResult::Persistence::NotAttempted;
+    out.detail = "configured JVPT baseline could not be restored; save-all not attempted";
+    return out;
+  }
+  if (cancelled()) {
+    out.persistence = PersistentZeroResult::Persistence::NotAttempted;
+    out.detail = "cancelled after baseline restoration; save-all not attempted";
+    return out;
+  }
+  if (!persistentZeroStoreParameters()) {
+    out.persistence = PersistentZeroResult::Persistence::Unknown;
+    out.detail = "reference applied in RAM; save-all acknowledgement was not received";
+    return out;
+  }
+  out.persistence = PersistentZeroResult::Persistence::Persisted;
+  out.detail = "referenced zero persisted with configured gains";
+  return out;
+}
+
 
 bool Maxon::setDriveStateViaSdo(const DriveState& driveState) {
   bool success = true;

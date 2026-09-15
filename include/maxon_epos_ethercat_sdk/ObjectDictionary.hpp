@@ -156,3 +156,4 @@
 //store param
 
 #define OD_STORE_PARAM (0x1010)
+#define OD_IDENTITY_OBJECT (0x1018)

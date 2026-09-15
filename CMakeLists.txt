@@ -76,6 +76,13 @@ target_include_directories(${PROJECT_NAME}
 
 ament_target_dependencies(
     ${PROJECT_NAME} ${PACKAGE_DEPENDENCIES})
+target_link_libraries(${PROJECT_NAME} yaml-cpp)
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(persistent_zero_protocol_test test/PersistentZeroProtocolTest.cpp)
+  target_link_libraries(persistent_zero_protocol_test ${PROJECT_NAME})
+endif()
 
 
 #############

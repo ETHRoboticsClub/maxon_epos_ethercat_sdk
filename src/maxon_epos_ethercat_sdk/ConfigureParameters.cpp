@@ -650,13 +650,9 @@ bool Maxon::configParam() {
   configSuccess &= sdoVerifyWrite(OD_INDEX_HOME_POSITION, 0x00, false,
                                   configuration_.homingPosition,
                                   configuration_.configRunSdoVerifyTimeout);
-  // Home Offset (0x3673) is deliberately forced to ZERO. The URDF zero is now
-  // applied per-boot in doHoming() via Method 37 / Home Position (0x30B0 =
-  // current_raw - homing_offset) — the only path this firmware honours. A
-  // nonzero 0x3673 (e.g. one previously persisted to NVM via MAXON_STORE_PARAMS)
-  // would stack a second shift on top of that and corrupt the zero, so it must
-  // stay neutral. To flush an old NVM value: run once with MAXON_STORE_PARAMS=1,
-  // then power-cycle.
+  // Home Offset (0x3673) stays neutral. Persistent reference changes are an
+  // explicit disabled-drive Method-37 service transaction with Home Position 0;
+  // normal configuration and startup never apply YAML encoder counts.
   configSuccess &= sdoVerifyWrite(OD_INDEX_HOME_OFFSET, 0x00, false,
                                   static_cast<int32_t>(0),
                                   configuration_.configRunSdoVerifyTimeout);
