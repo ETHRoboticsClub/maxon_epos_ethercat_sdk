@@ -940,8 +940,22 @@ void Maxon::persistentZeroSleepFor(std::chrono::milliseconds duration) {
 
 Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAsZero(
     const std::function<bool()>& cancelled) {
+  return referenceCurrentPositionAs(0.0, cancelled);
+}
+
+Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAs(
+    double positionRad, const std::function<bool()>& cancelled) {
   std::lock_guard<std::mutex> operationLock(persistentZeroMutex_);
   PersistentZeroResult out;
+  const double increments = positionRad *
+      static_cast<double>(configuration_.positionEncoderResolution) / (2.0 * M_PI);
+  if (!std::isfinite(increments) || configuration_.positionEncoderResolution <= 0 ||
+      increments < -2147483648.0 || increments > 2147483647.0) {
+    out.reference = PersistentZeroResult::Reference::Unchanged;
+    out.detail = "reference position cannot be represented in native encoder increments";
+    return out;
+  }
+  const auto homePosition = static_cast<int32_t>(std::llround(increments));
   const auto restoreSafeJvpt = [this]() {
     Command safe;
     safe.setModeOfOperation(ModeOfOperationEnum::CyclicJVPTMode);
@@ -967,7 +981,6 @@ Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAsZero(
   }
 
   const int8_t method = 37;
-  const int32_t homePosition = 0;
   if (cancelled()) {
     out.reference = PersistentZeroResult::Reference::Unchanged;
     out.detail = "cancelled before Method-37 configuration";
@@ -981,7 +994,7 @@ Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAsZero(
   }
   configured &= persistentZeroVerifyHomePosition(homePosition);
   if (!configured) {
-    out.detail = "failed to configure Method 37 with Home Position 0";
+    out.detail = "failed to configure Method 37 with the requested Home Position";
     return out;
   }
 
@@ -1091,19 +1104,19 @@ Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAsZero(
     out.detail = "fresh resulting position feedback could not be verified";
     return out;
   }
-  if (reportedPosition != 0) {
+  if (reportedPosition != homePosition) {
     out.reference = PersistentZeroResult::Reference::Unknown;
     out.persistence = PersistentZeroResult::Persistence::NotAttempted;
-    out.detail = "Method 37 completed but 0x6064 did not read back zero";
+    out.detail = "Method 37 completed but 0x6064 did not read back the requested reference";
     return out;
   }
   out.reference = PersistentZeroResult::Reference::Applied;
   if (persistentZeroReading().getDriveState() != DriveState::SwitchOnDisabled) {
     out.reference = PersistentZeroResult::Reference::Unknown;
-    out.detail = "zero read back but the drive did not return to SwitchOnDisabled";
+    out.detail = "reference read back but the drive did not return to SwitchOnDisabled";
     return out;
   }
-  out.detail = "current position referenced as zero in RAM; drive returned to SwitchOnDisabled";
+  out.detail = "requested position reference verified in RAM; drive returned to SwitchOnDisabled";
   return out;
 }
 

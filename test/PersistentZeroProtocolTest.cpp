@@ -2,6 +2,8 @@
 
 #include <chrono>
 #include <cstdint>
+#include <cmath>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -150,6 +152,36 @@ TEST(PersistentZeroProtocol, RejectsCompletionWithoutANewerPdoSample) {
   EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Unknown);
   EXPECT_EQ(drive.actualPositionReads, 0u);
   EXPECT_EQ(drive.homingStartEdges.back(), false);
+}
+
+TEST(PersistentZeroProtocol, ReferencesAtAnExplicitSignedPosition) {
+  ProtocolMaxon drive;
+  drive.actualPosition = -125;
+  const auto result = drive.referenceCurrentPositionAs(-M_PI / 4.0);
+  EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Applied);
+  EXPECT_EQ(drive.homePositionWrites, std::vector<int32_t>({-125}));
+  EXPECT_EQ(drive.actualPositionReads, 1u);
+  for (const auto word : drive.controlwords) EXPECT_EQ(word & (1u << 3), 0u);
+}
+
+TEST(PersistentZeroProtocol, ExplicitReferenceRequiresMatchingReadback) {
+  ProtocolMaxon drive;
+  const auto result = drive.referenceCurrentPositionAs(M_PI / 2.0);
+  EXPECT_EQ(drive.homePositionWrites, std::vector<int32_t>({250}));
+  EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Unknown);
+  EXPECT_EQ(drive.storeCalls, 0u);
+}
+
+TEST(PersistentZeroProtocol, InvalidReferencePerformsNoMutation) {
+  for (double position : {std::numeric_limits<double>::quiet_NaN(),
+                          std::numeric_limits<double>::infinity(), 1e20}) {
+    ProtocolMaxon drive;
+    const auto result = drive.referenceCurrentPositionAs(position);
+    EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Unchanged);
+    EXPECT_TRUE(drive.methodWrites.empty());
+    EXPECT_TRUE(drive.homePositionWrites.empty());
+    EXPECT_TRUE(drive.homingStartEdges.empty());
+  }
 }
 
 TEST(PersistentZeroProtocol, RejectsCompletionWithoutReferencedBit) {

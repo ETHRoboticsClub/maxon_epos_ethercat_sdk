@@ -135,6 +135,8 @@ class Maxon : public ecat_master::EthercatDevice {
   // retry an indeterminate result automatically.
   PersistentZeroResult referenceCurrentPositionAsZero(
       const std::function<bool()>& cancelled = [] { return false; });
+  PersistentZeroResult referenceCurrentPositionAs(
+      double positionRad, const std::function<bool()>& cancelled = [] { return false; });
   PersistentZeroResult persistReferencedZero(
       const std::function<bool()>& cancelled = [] { return false; });
   bool readDeviceSerialNumber(uint32_t& serial);
