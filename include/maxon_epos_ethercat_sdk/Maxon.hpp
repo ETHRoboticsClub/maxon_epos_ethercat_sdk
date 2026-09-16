@@ -206,11 +206,8 @@ class Maxon : public ecat_master::EthercatDevice {
   bool readErrorCode(uint16_t& code);
   void printErrorCode();
   void printDiagnosis();
-  // Consume the fault-edge flag set by updateRead() and do the SDO read of
-  // 0x603F off the RT path. Idempotent: no-op when no fault edge has been
-  // observed since the last call. Call from a NON-RT thread (the executor /
-  // diagnostics thread) — the underlying SDO blocks the EtherCAT mailbox, and
-  // at 500 Hz one inline SDO blows the 2 ms cycle budget. See updateRead().
+  // Call repeatedly from the executor; queues/polls the fault-code SDO without
+  // waiting on the network or holding the cyclic device mutex.
   void processPendingFaultLog();
 
  public:
@@ -230,11 +227,9 @@ class Maxon : public ecat_master::EthercatDevice {
   std::chrono::time_point<std::chrono::steady_clock> driveStateChangeTimePoint_;
   uint16_t numberOfSuccessfulTargetStateReadings_{0};
   std::atomic<bool> stateChangeSuccessful_{false};
-  // Set by updateRead() on a non-Fault → Fault transition. Consumed by
-  // processPendingFaultLog() from a non-RT thread, which does the SDO read of
-  // 0x603F and populates reading_.lastFault_. Atomic because writer (RT
-  // worker) and reader (executor) are different threads.
+  // RT writer, executor consumer. A new edge queues another diagnostic read.
   std::atomic<bool> faultEdgePending_{false};
+  soem_interface_rsl::MailboxRequest::Ptr faultCodeRequest_; // executor-owned
 
   // Rising/falling-edge latch for clampJointPositionToSoftLimits() so the [WARN]
   // fires once when the command enters the clamped region and once when it

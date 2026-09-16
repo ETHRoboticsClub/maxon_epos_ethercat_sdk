@@ -114,33 +114,27 @@ void Maxon::printErrorCode() {
   }
 }
 
-/*
-** Consume the fault-edge flag set by updateRead() and perform the deferred SDO
-** read of 0x603F. Idempotent: only does work the first time it's called after
-** a non-Fault → Fault transition. The compare-exchange ensures concurrent
-** callers from different threads can't race the SDO call.
-**
-** Why this exists: printErrorCode() does an SDO read which blocks the EtherCAT
-** mailbox until the slave responds. Running it inline in the RT worker at
-** 500 Hz means one fault edge consumes most/all of the 2 ms cycle budget and
-** several simultaneous faults cascade into WKC errors. By deferring the SDO
-** to the executor thread (50 Hz), the worker stays on its deadline and the
-** error code still lands in reading_.lastFault_ within at most one executor
-** period — fast enough for monitorFaultTransitions() to log it on the same
-** fault-edge dump it already produces.
-*/
 void Maxon::processPendingFaultLog() {
-  bool expected = true;
-  if (!faultEdgePending_.compare_exchange_strong(expected, false,
-                                                 std::memory_order_acq_rel)) {
-    return;
+  using soem_interface_rsl::MailboxStatus;
+  if (faultCodeRequest_) {
+    const auto status = faultCodeRequest_->status.load(std::memory_order_acquire);
+    if (status == MailboxStatus::Pending) return;
+    if (status == MailboxStatus::Success) {
+      const auto code = static_cast<uint16_t>(faultCodeRequest_->value);
+      {
+        std::lock_guard<std::recursive_mutex> lock(readingMutex_);
+        reading_.addFault(code);
+      }
+      MELO_ERROR_STREAM("[" << name_ << "] resolved drive fault 0x603F=0x" << std::hex << code << std::dec << " - " << errorCodeToString(code))
+    } else {
+      MELO_ERROR_STREAM("[" << name_ << "] fault code unavailable: mailbox status=" << soem_interface_rsl::mailboxStatusName(status)
+                        << " abort=" << faultCodeRequest_->abortCode)
+    }
+    faultCodeRequest_.reset();
   }
-  // Match the SDK's existing locking convention: every other SDO-issuing path
-  // (configParam, setDriveStateViaSdo) holds mutex_ across the SDO. The bus
-  // also has its own contextMutex_ inside SOEM, so this is belt-and-braces,
-  // but diverging from convention would be a foot-gun for future maintenance.
-  std::lock_guard<std::recursive_mutex> lock(mutex_);
-  printErrorCode();
+  if (faultEdgePending_.exchange(false, std::memory_order_acq_rel)) {
+    faultCodeRequest_ = requestSdo(OD_INDEX_ERROR_CODE, 0, 2);
+  }
 }
 
 /*
