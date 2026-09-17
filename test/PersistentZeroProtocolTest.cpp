@@ -41,6 +41,8 @@ class ProtocolMaxon final : public Maxon {
 
   bool serialReadOk{true};
   bool displayedModeAccepted{true};
+  // False: 0x6061 keeps showing HomingMode once homing ran (the JVPT restore fails).
+  bool acceptModesAfterHoming{true};
   bool completeOnStart{true};
   // Statusword state bits the drive reports once Method 37 completes; the
   // default keeps whatever state the test armed the drive in.
@@ -96,7 +98,12 @@ class ProtocolMaxon final : public Maxon {
   }
 
   bool persistentZeroReadDisplayedMode(int8_t& mode) override {
-    // 0x6061 follows the last staged mode; a refusing drive stays in JVPT.
+    // 0x6061 follows the last staged mode; a refusing drive stays in JVPT, and
+    // one that will not leave homing keeps showing HomingMode after the edge.
+    if (!acceptModesAfterHoming && !homingStartEdges.empty()) {
+      mode = static_cast<int8_t>(ModeOfOperationEnum::HomingMode);
+      return true;
+    }
     mode = static_cast<int8_t>(displayedModeAccepted && !stagedModes.empty()
         ? stagedModes.back()
         : ModeOfOperationEnum::CyclicJVPTMode);
@@ -281,12 +288,15 @@ TEST(PersistentZeroProtocol, ReferencesAtAnExplicitSignedPosition) {
   for (const auto word : drive.controlwords) EXPECT_EQ(word & (1u << 3), 0u);
 }
 
-TEST(PersistentZeroProtocol, ExplicitReferenceRequiresMatchingReadback) {
+TEST(PersistentZeroProtocol, ExplicitReferenceIsProvenByTheRegisterNotTheReadback) {
+  // 0x30B0 holds the requested 250 counts and the edge was fresh: the frame is
+  // set. The 40 counts seen at completion are motion after the latch.
   ProtocolMaxon drive;
   drive.pdoOffsetAfterHoming = 40;
   const auto result = drive.referenceCurrentPositionAs(M_PI / 2.0);
   EXPECT_EQ(drive.homePositionWrites, std::vector<int32_t>({250}));
-  EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Unknown);
+  EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Applied);
+  EXPECT_EQ(result.motionAfterLatchCounts, 40);
   EXPECT_EQ(drive.storeCalls, 0u);
 }
 
@@ -323,42 +333,37 @@ TEST(PersistentZeroProtocol, RejectsHomingErrorEvenWithCompletionBits) {
   EXPECT_EQ(drive.homingStartEdges.back(), false);
 }
 
-TEST(PersistentZeroProtocol, ToleratesLimbMotionWithinTheStationarityBudgetAfterMethod37) {
-  // A torque-free limb keeps moving after the homing instant; the readback is
-  // judged against the caller's stationarity budget (5 mrad at 1000 counts/rev
-  // is 0.8 counts, so the two-count floor applies), never exactly.
-  for (const int32_t moved : {-2, -1, 1, 2}) {
+TEST(PersistentZeroProtocol, MotionAfterTheLatchIsReportedNotJudged) {
+  // Method 37 latches the frame at the homing instant; whatever 0x6064 shows
+  // in the completion cycle or at the readback is motion since (a loaded joint
+  // handed to the homing-mode position loop is pulled toward its demand). The
+  // reference is applied and both deltas are reported in counts.
+  for (const int32_t moved : {-30, -2, -1, 1, 2, 29}) {
     ProtocolMaxon drive;
     drive.pdoOffsetAfterHoming = moved;
-    drive.actualPosition = 10 * moved;  // the SDO readback comes later; the limb kept going
-    const auto result = drive.referenceCurrentPositionAsZero([] { return false; }, 0.005);
+    drive.actualPosition = 10 * moved;  // the SDO readback comes later
+    const auto result = drive.referenceCurrentPositionAsZero();
     EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Applied) << moved;
+    EXPECT_EQ(result.motionAfterLatchCounts, moved) << moved;
+    EXPECT_EQ(result.motionAtReadbackCounts, 10 * moved) << moved;
+    EXPECT_TRUE(result.frameSet);
   }
-  // A wider budget widens the tolerance in counts: 0.02 rad at 1000 counts/rev is 3 counts.
-  ProtocolMaxon wide;
-  wide.pdoOffsetAfterHoming = 3;
-  EXPECT_EQ(wide.referenceCurrentPositionAsZero([] { return false; }, 0.02).reference,
-            Maxon::PersistentZeroResult::Reference::Applied);
-  ProtocolMaxon beyond;
-  beyond.pdoOffsetAfterHoming = 4; beyond.actualPosition = 9;
-  const auto result = beyond.referenceCurrentPositionAsZero([] { return false; }, 0.02);
-  EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Unknown);
-  EXPECT_NE(result.detail.find("at completion was 4 against requested 0"), std::string::npos) << result.detail;
-  EXPECT_NE(result.detail.find("delta 4 counts, tolerance 3; SDO readback 9, delta 9"), std::string::npos) << result.detail;
-  // With no budget given the floor still holds, and three counts is too far.
-  ProtocolMaxon floorOnly;
-  floorOnly.pdoOffsetAfterHoming = 3;
-  const auto refused = floorOnly.referenceCurrentPositionAsZero();
-  EXPECT_EQ(refused.reference, Maxon::PersistentZeroResult::Reference::Unknown);
-  EXPECT_NE(refused.detail.find("tolerance 2"), std::string::npos) << refused.detail;
+  ProtocolMaxon still;
+  const auto quiet = still.referenceCurrentPositionAsZero();
+  EXPECT_EQ(quiet.motionAfterLatchCounts, 0);
+  EXPECT_EQ(quiet.motionAtReadbackCounts, 0);
 }
 
 TEST(PersistentZeroProtocol, FrameSetIsReportedIndependentlyOfTheReferenceVerdict) {
-  ProtocolMaxon moved;
-  moved.pdoOffsetAfterHoming = 50;
-  const auto tooFar = moved.referenceCurrentPositionAsZero();
-  EXPECT_EQ(tooFar.reference, Maxon::PersistentZeroResult::Reference::Unknown);
-  EXPECT_TRUE(tooFar.frameSet);  // Method 37 completed, 0x30B0 verified: the frame is set
+  // After the frame is proven, the only Unknown verdicts left are the mode
+  // restore and the drive-state check on an enabled drive: frameSet stays true.
+  ProtocolMaxon restoreFails;
+  restoreFails.setStatusword(kOperationEnabled);
+  restoreFails.acceptModesAfterHoming = false;
+  const auto noJvpt = restoreFails.referenceCurrentPositionAsZero();
+  EXPECT_EQ(noJvpt.reference, Maxon::PersistentZeroResult::Reference::Unknown);
+  EXPECT_NE(noJvpt.detail.find("CyclicJVPTMode"), std::string::npos) << noJvpt.detail;
+  EXPECT_TRUE(noJvpt.frameSet);
   ProtocolMaxon fine;
   EXPECT_TRUE(fine.referenceCurrentPositionAsZero().frameSet);
   ProtocolMaxon serialLess;
@@ -387,16 +392,6 @@ TEST(PersistentZeroProtocol, HomePositionRegisterMustStillHoldTheRequestedValue)
   ProtocolMaxon unreadable;
   unreadable.homePositionReadOk = false;
   EXPECT_EQ(unreadable.referenceCurrentPositionAsZero().reference, Maxon::PersistentZeroResult::Reference::Unknown);
-}
-
-TEST(PersistentZeroProtocol, RejectsPositionReadbackBeyondTolerance) {
-  ProtocolMaxon drive;
-  drive.pdoOffsetAfterHoming = 50;
-
-  const auto result = drive.referenceCurrentPositionAsZero();
-
-  EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Unknown);
-  EXPECT_EQ(drive.actualPositionReads, 1u);
 }
 
 TEST(PersistentZeroProtocol, CancellationBeforeMutationPerformsNoWrites) {

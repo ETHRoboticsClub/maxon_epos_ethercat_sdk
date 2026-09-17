@@ -137,6 +137,13 @@ class Maxon : public ecat_master::EthercatDevice {
     // the requested value: the frame is set even when a later check (position
     // readback, mode restore) leaves `reference` Unknown.
     bool frameSet{false};
+    // How far 0x6064 stood from the requested reference in the completion
+    // cycle's PDO sample and at the later SDO readback, in counts. Method 37
+    // latches the frame at the homing instant, so a nonzero value is motion
+    // AFTER the latch (a loaded joint handed to the homing-mode position loop
+    // is pulled toward that loop's demand), never a frame error.
+    int64_t motionAfterLatchCounts{0};
+    int64_t motionAtReadbackCounts{0};
     // Home Reference Position (0x30B5:01) read back after an applied reference:
     // the value the drive keeps in RAM until save-all or a power cycle.
     std::optional<int32_t> homeReference;
@@ -152,17 +159,13 @@ class Maxon : public ecat_master::EthercatDevice {
   // reference lives in RAM until persistReferencedZero() issues CiA-301
   // save-all, which needs a SwitchOnDisabled drive and no cyclic PDO traffic.
   // One call is one attempt; callers must not retry an indeterminate result.
-  // `readbackToleranceRad`: how far 0x6064 may have moved from the requested
-  // reference by the time it is read back. Method 37 sets the frame at the
-  // homing instant; a torque-free limb keeps moving afterwards, so the caller
-  // passes the stationarity budget its own gate used. Never below two counts.
+  // The frame is proven by the fresh homing-attained/referenced edge and Home
+  // Position (0x30B0) still reading the requested value; the 0x6064 deltas are
+  // reported, not judged.
   PersistentZeroResult referenceCurrentPositionAsZero(
-      const std::function<bool()>& cancelled = [] { return false; },
-      double readbackToleranceRad = 0.0);
+      const std::function<bool()>& cancelled = [] { return false; });
   PersistentZeroResult referenceCurrentPositionAs(
-      double positionRad, const std::function<bool()>& cancelled = [] { return false; },
-      double readbackToleranceRad = 0.0);
-  static constexpr int64_t kMinReadbackToleranceCounts = 2;
+      double positionRad, const std::function<bool()>& cancelled = [] { return false; });
   PersistentZeroResult persistReferencedZero(
       const std::function<bool()>& cancelled = [] { return false; });
   bool readDeviceSerialNumber(uint32_t& serial);
