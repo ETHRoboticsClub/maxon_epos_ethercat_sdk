@@ -353,6 +353,31 @@ TEST(PersistentZeroProtocol, ToleratesLimbMotionWithinTheStationarityBudgetAfter
   EXPECT_NE(refused.detail.find("tolerance 2"), std::string::npos) << refused.detail;
 }
 
+TEST(PersistentZeroProtocol, FrameSetIsReportedIndependentlyOfTheReferenceVerdict) {
+  ProtocolMaxon moved;
+  moved.pdoOffsetAfterHoming = 50;
+  const auto tooFar = moved.referenceCurrentPositionAsZero();
+  EXPECT_EQ(tooFar.reference, Maxon::PersistentZeroResult::Reference::Unknown);
+  EXPECT_TRUE(tooFar.frameSet);  // Method 37 completed, 0x30B0 verified: the frame is set
+  ProtocolMaxon fine;
+  EXPECT_TRUE(fine.referenceCurrentPositionAsZero().frameSet);
+  ProtocolMaxon serialLess;
+  serialLess.serialReadOk = false;
+  EXPECT_FALSE(serialLess.referenceCurrentPositionAsZero().frameSet);
+  ProtocolMaxon register7;
+  register7.homePositionAfterHoming = 7;
+  EXPECT_FALSE(register7.referenceCurrentPositionAsZero().frameSet);
+  ProtocolMaxon erroring;
+  erroring.includeHomingError = true;
+  EXPECT_FALSE(erroring.referenceCurrentPositionAsZero().frameSet);
+  ProtocolMaxon modeless;
+  modeless.setStatusword(kOperationEnabled);
+  modeless.displayedModeAccepted = false;
+  const auto noHoming = modeless.referenceCurrentPositionAsZero();
+  EXPECT_EQ(noHoming.reference, Maxon::PersistentZeroResult::Reference::Unchanged);
+  EXPECT_FALSE(noHoming.frameSet);
+}
+
 TEST(PersistentZeroProtocol, HomePositionRegisterMustStillHoldTheRequestedValue) {
   ProtocolMaxon changed;
   changed.homePositionAfterHoming = 7;

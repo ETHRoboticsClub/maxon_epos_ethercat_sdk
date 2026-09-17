@@ -133,6 +133,10 @@ class Maxon : public ecat_master::EthercatDevice {
     enum class Reference { Unchanged, Applied, Unknown } reference{Reference::Unknown};
     enum class Persistence { NotAttempted, Persisted, Failed, Unknown } persistence{Persistence::NotAttempted};
     uint32_t serial{0};
+    // True once Method 37 completed on the drive with Home Position still at
+    // the requested value: the frame is set even when a later check (position
+    // readback, mode restore) leaves `reference` Unknown.
+    bool frameSet{false};
     // Home Reference Position (0x30B5:01) read back after an applied reference:
     // the value the drive keeps in RAM until save-all or a power cycle.
     std::optional<int32_t> homeReference;

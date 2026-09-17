@@ -962,7 +962,8 @@ bool Maxon::persistentZeroReadHomeReference(int32_t& homeReference) {
 }
 
 bool Maxon::readHomeReference(int32_t& homeReference) {
-  return sendSdoRead(OD_INDEX_HOME_REFERENCE_STATE, 0x01, false, homeReference);
+  // Read in either bus state: a caller settling a transaction reads it in OP.
+  return persistentZeroSdoRead(OD_INDEX_HOME_REFERENCE_STATE, 0x01, homeReference);
 }
 
 bool Maxon::persistentZeroVerifyJvptGain(uint8_t subindex, uint32_t value) {
@@ -1185,6 +1186,7 @@ Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAs(
     MELO_WARN_STREAM("[maxon_epos_ethercat_sdk:Maxon::referenceCurrentPositionAs] '" << name_ << "' " << out.detail);
     return out;
   }
+  out.frameSet = true;
   const double toleranceRad = std::isfinite(readbackToleranceRad) ? std::max(0.0, readbackToleranceRad) : 0.0;
   const int64_t toleranceCounts = std::max<int64_t>(kMinReadbackToleranceCounts, static_cast<int64_t>(
       toleranceRad * static_cast<double>(configuration_.positionEncoderResolution) / (2.0 * M_PI)));
