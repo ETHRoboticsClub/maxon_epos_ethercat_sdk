@@ -148,10 +148,17 @@ class Maxon : public ecat_master::EthercatDevice {
   // reference lives in RAM until persistReferencedZero() issues CiA-301
   // save-all, which needs a SwitchOnDisabled drive and no cyclic PDO traffic.
   // One call is one attempt; callers must not retry an indeterminate result.
+  // `readbackToleranceRad`: how far 0x6064 may have moved from the requested
+  // reference by the time it is read back. Method 37 sets the frame at the
+  // homing instant; a torque-free limb keeps moving afterwards, so the caller
+  // passes the stationarity budget its own gate used. Never below two counts.
   PersistentZeroResult referenceCurrentPositionAsZero(
-      const std::function<bool()>& cancelled = [] { return false; });
+      const std::function<bool()>& cancelled = [] { return false; },
+      double readbackToleranceRad = 0.0);
   PersistentZeroResult referenceCurrentPositionAs(
-      double positionRad, const std::function<bool()>& cancelled = [] { return false; });
+      double positionRad, const std::function<bool()>& cancelled = [] { return false; },
+      double readbackToleranceRad = 0.0);
+  static constexpr int64_t kMinReadbackToleranceCounts = 2;
   PersistentZeroResult persistReferencedZero(
       const std::function<bool()>& cancelled = [] { return false; });
   bool readDeviceSerialNumber(uint32_t& serial);

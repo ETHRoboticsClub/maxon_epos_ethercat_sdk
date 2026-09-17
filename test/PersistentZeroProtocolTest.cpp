@@ -52,6 +52,8 @@ class ProtocolMaxon final : public Maxon {
   bool includeHomingError{false};
   bool actualPositionReadOk{true};
   int32_t actualPosition{0};
+  // 0x6064 in the completion cycle relative to the requested Home Position.
+  int32_t pdoOffsetAfterHoming{0};
   bool storeOk{true};
   unsigned storeCalls{0};
   unsigned actualPositionReads{0};
@@ -126,6 +128,9 @@ class ProtocolMaxon final : public Maxon {
     homingStartEdges.push_back(start);
     controlwords.push_back(controlword_.getRawControlword());
     if (!start || !completeOnStart) return;
+    if (!homePositionWrites.empty()) {
+      reading_.setActualJointPositionRAW(homePositionWrites.back() + pdoOffsetAfterHoming);
+    }
     const uint16_t state = stateAfterCompletion ? *stateAfterCompletion
         : static_cast<uint16_t>(reading_.getRawStatusword() & 0x006F);
     uint16_t status = state | kHomingAttained;
@@ -269,6 +274,7 @@ TEST(PersistentZeroProtocol, ReferencesAtAnExplicitSignedPosition) {
 
 TEST(PersistentZeroProtocol, ExplicitReferenceRequiresMatchingReadback) {
   ProtocolMaxon drive;
+  drive.pdoOffsetAfterHoming = 40;
   const auto result = drive.referenceCurrentPositionAs(M_PI / 2.0);
   EXPECT_EQ(drive.homePositionWrites, std::vector<int32_t>({250}));
   EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Unknown);
@@ -308,9 +314,39 @@ TEST(PersistentZeroProtocol, RejectsHomingErrorEvenWithCompletionBits) {
   EXPECT_EQ(drive.homingStartEdges.back(), false);
 }
 
-TEST(PersistentZeroProtocol, RejectsNonzeroPositionReadback) {
+TEST(PersistentZeroProtocol, ToleratesLimbMotionWithinTheStationarityBudgetAfterMethod37) {
+  // A torque-free limb keeps moving after the homing instant; the readback is
+  // judged against the caller's stationarity budget (5 mrad at 1000 counts/rev
+  // is 0.8 counts, so the two-count floor applies), never exactly.
+  for (const int32_t moved : {-2, -1, 1, 2}) {
+    ProtocolMaxon drive;
+    drive.pdoOffsetAfterHoming = moved;
+    drive.actualPosition = 10 * moved;  // the SDO readback comes later; the limb kept going
+    const auto result = drive.referenceCurrentPositionAsZero([] { return false; }, 0.005);
+    EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Applied) << moved;
+  }
+  // A wider budget widens the tolerance in counts: 0.02 rad at 1000 counts/rev is 3 counts.
+  ProtocolMaxon wide;
+  wide.pdoOffsetAfterHoming = 3;
+  EXPECT_EQ(wide.referenceCurrentPositionAsZero([] { return false; }, 0.02).reference,
+            Maxon::PersistentZeroResult::Reference::Applied);
+  ProtocolMaxon beyond;
+  beyond.pdoOffsetAfterHoming = 4; beyond.actualPosition = 9;
+  const auto result = beyond.referenceCurrentPositionAsZero([] { return false; }, 0.02);
+  EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Unknown);
+  EXPECT_NE(result.detail.find("at completion was 4 against requested 0"), std::string::npos) << result.detail;
+  EXPECT_NE(result.detail.find("delta 4 counts, tolerance 3; SDO readback 9, delta 9"), std::string::npos) << result.detail;
+  // With no budget given the floor still holds, and three counts is too far.
+  ProtocolMaxon floorOnly;
+  floorOnly.pdoOffsetAfterHoming = 3;
+  const auto refused = floorOnly.referenceCurrentPositionAsZero();
+  EXPECT_EQ(refused.reference, Maxon::PersistentZeroResult::Reference::Unknown);
+  EXPECT_NE(refused.detail.find("tolerance 2"), std::string::npos) << refused.detail;
+}
+
+TEST(PersistentZeroProtocol, RejectsPositionReadbackBeyondTolerance) {
   ProtocolMaxon drive;
-  drive.actualPosition = 1;
+  drive.pdoOffsetAfterHoming = 50;
 
   const auto result = drive.referenceCurrentPositionAsZero();
 

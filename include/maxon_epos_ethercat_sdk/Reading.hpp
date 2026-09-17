@@ -145,6 +145,7 @@ class Reading {
   //Anydrive5 specific RAW reading methods
 
   void setActualJointPositionRAW(int32_t actualJointPosition);
+  int32_t getActualJointPositionRAW() const { return actualJointPosition_; }
 
   void setActualJointVelocityRAW(int32_t actualJointVelocity);
 

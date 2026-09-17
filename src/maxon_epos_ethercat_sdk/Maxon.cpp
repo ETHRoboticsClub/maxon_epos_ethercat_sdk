@@ -983,12 +983,12 @@ void Maxon::persistentZeroSleepFor(std::chrono::milliseconds duration) {
 }
 
 Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAsZero(
-    const std::function<bool()>& cancelled) {
-  return referenceCurrentPositionAs(0.0, cancelled);
+    const std::function<bool()>& cancelled, double readbackToleranceRad) {
+  return referenceCurrentPositionAs(0.0, cancelled, readbackToleranceRad);
 }
 
 Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAs(
-    double positionRad, const std::function<bool()>& cancelled) {
+    double positionRad, const std::function<bool()>& cancelled, double readbackToleranceRad) {
   std::lock_guard<std::mutex> operationLock(persistentZeroMutex_);
   PersistentZeroResult out;
   const double increments = positionRad *
@@ -1164,12 +1164,32 @@ Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAs(
     out.detail = "fresh resulting position feedback could not be verified";
     return out;
   }
-  if (reportedPosition != homePosition) {
+  // The drive set 0x6064 := Home Position at the homing instant. The frame is
+  // proven by the PDO sample of the completion cycle, the closest observation
+  // to that instant; the later SDO readback of 0x6064 confirms the channel and
+  // shows how far a torque-free joint has moved since. Within the caller's
+  // stationarity budget that is motion, not a wrong frame.
+  const double toleranceRad = std::isfinite(readbackToleranceRad) ? std::max(0.0, readbackToleranceRad) : 0.0;
+  const int64_t toleranceCounts = std::max<int64_t>(kMinReadbackToleranceCounts, static_cast<int64_t>(
+      toleranceRad * static_cast<double>(configuration_.positionEncoderResolution) / (2.0 * M_PI)));
+  const int32_t pdoPosition = feedback.getActualJointPositionRAW();
+  const int64_t delta = static_cast<int64_t>(pdoPosition) - static_cast<int64_t>(homePosition);
+  const int64_t sdoDelta = static_cast<int64_t>(reportedPosition) - static_cast<int64_t>(homePosition);
+  if (std::llabs(delta) > toleranceCounts) {
     if (enabled) restoreSafeJvpt();
     out.reference = PersistentZeroResult::Reference::Unknown;
     out.persistence = PersistentZeroResult::Persistence::NotAttempted;
-    out.detail = "Method 37 completed but 0x6064 did not read back the requested reference";
+    out.detail = "Method 37 completed but 0x6064 at completion was " + std::to_string(pdoPosition) +
+        " against requested " + std::to_string(homePosition) + " (delta " + std::to_string(delta) +
+        " counts, tolerance " + std::to_string(toleranceCounts) + "; SDO readback " +
+        std::to_string(reportedPosition) + ", delta " + std::to_string(sdoDelta) + ")";
+    MELO_WARN_STREAM("[maxon_epos_ethercat_sdk:Maxon::referenceCurrentPositionAs] '" << name_ << "' " << out.detail);
     return out;
+  }
+  if (delta != 0 || sdoDelta != 0) {
+    MELO_WARN_STREAM("[maxon_epos_ethercat_sdk:Maxon::referenceCurrentPositionAs] '" << name_
+                     << "' reference accepted: 0x6064 was " << delta << " count(s) off at completion (tolerance "
+                     << toleranceCounts << ") and " << sdoDelta << " at the SDO readback; the joint moved, the frame did not");
   }
   int32_t homeReference = 0;
   if (persistentZeroReadHomeReference(homeReference)) out.homeReference = homeReference;
