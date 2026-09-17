@@ -896,30 +896,65 @@ bool Maxon::readDeviceSerialNumber(uint32_t& serial) {
   return sendSdoRead(OD_IDENTITY_OBJECT, 0x04, false, serial);
 }
 
+bool Maxon::persistentZeroSdo(uint16_t index, uint8_t subindex, uint8_t size, bool write, uint32_t& value) {
+  using soem_interface_rsl::MailboxStatus;
+  const auto request = requestSdo(index, subindex, size, write, value);
+  // The mailbox owner completes or times out every accepted request itself;
+  // the margin only covers the tick that publishes the verdict.
+  const auto deadline = std::chrono::steady_clock::now() +
+      soem_interface_rsl::AsyncMailbox::kTimeout + std::chrono::milliseconds(300);
+  auto status = request->status.load(std::memory_order_acquire);
+  while (status == MailboxStatus::Pending && std::chrono::steady_clock::now() < deadline) {
+    persistentZeroSleepFor(std::chrono::milliseconds(1));
+    status = request->status.load(std::memory_order_acquire);
+  }
+  if (status == MailboxStatus::Success) {
+    if (!write) value = request->value;
+    return true;
+  }
+  if (status != MailboxStatus::Unavailable) {
+    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::persistentZeroSdo] '" << name_ << "' 0x" << std::hex
+                      << index << ":" << static_cast<int>(subindex) << std::dec << (write ? " write " : " read ")
+                      << soem_interface_rsl::mailboxStatusName(status));
+    return false;
+  }
+  // Unavailable: the bus is not in OP, so the mailbox is idle and a synchronous
+  // transfer is the one that works.
+  switch (size) {
+    case 1: { uint8_t v = static_cast<uint8_t>(value);
+      const bool ok = write ? sendSdoWrite(index, subindex, false, v) : sendSdoRead(index, subindex, false, v);
+      if (ok && !write) value = v; return ok; }
+    case 2: { uint16_t v = static_cast<uint16_t>(value);
+      const bool ok = write ? sendSdoWrite(index, subindex, false, v) : sendSdoRead(index, subindex, false, v);
+      if (ok && !write) value = v; return ok; }
+    default: {
+      const bool ok = write ? sendSdoWrite(index, subindex, false, value) : sendSdoRead(index, subindex, false, value);
+      return ok; }
+  }
+}
+
 bool Maxon::persistentZeroReadSerial(uint32_t& serial) {
-  return readDeviceSerialNumber(serial);
+  return persistentZeroSdoRead(OD_IDENTITY_OBJECT, 0x04, serial);
 }
 
 bool Maxon::persistentZeroVerifyMethod(int8_t method) {
-  return sdoVerifyWrite(OD_INDEX_HOME_METHOD, 0x00, false, method,
-                        configuration_.configRunSdoVerifyTimeout);
+  return persistentZeroSdoVerifyWrite(OD_INDEX_HOME_METHOD, 0x00, method);
 }
 
 bool Maxon::persistentZeroVerifyHomePosition(int32_t position) {
-  return sdoVerifyWrite(OD_INDEX_HOME_POSITION, 0x00, false, position,
-                        configuration_.configRunSdoVerifyTimeout);
+  return persistentZeroSdoVerifyWrite(OD_INDEX_HOME_POSITION, 0x00, position);
 }
 
 bool Maxon::persistentZeroReadDisplayedMode(int8_t& mode) {
-  return sendSdoRead(OD_INDEX_MODES_OF_OPERATION_DISPLAY, 0x00, false, mode);
+  return persistentZeroSdoRead(OD_INDEX_MODES_OF_OPERATION_DISPLAY, 0x00, mode);
 }
 
 bool Maxon::persistentZeroReadActualPosition(int32_t& position) {
-  return sendSdoRead(OD_INDEX_JOINT_POSITION_ACTUAL, 0x00, false, position);
+  return persistentZeroSdoRead(OD_INDEX_JOINT_POSITION_ACTUAL, 0x00, position);
 }
 
 bool Maxon::persistentZeroReadHomeReference(int32_t& homeReference) {
-  return readHomeReference(homeReference);
+  return persistentZeroSdoRead(OD_INDEX_HOME_REFERENCE_STATE, 0x01, homeReference);
 }
 
 bool Maxon::readHomeReference(int32_t& homeReference) {
@@ -927,8 +962,7 @@ bool Maxon::readHomeReference(int32_t& homeReference) {
 }
 
 bool Maxon::persistentZeroVerifyJvptGain(uint8_t subindex, uint32_t value) {
-  return sdoVerifyWrite(OD_INDEX_JVPT_PARAMETERS, subindex, false, value,
-                        configuration_.configRunSdoVerifyTimeout);
+  return persistentZeroSdoVerifyWrite(OD_INDEX_JVPT_PARAMETERS, subindex, value);
 }
 
 bool Maxon::persistentZeroStoreParameters() { return storeParam(); }
@@ -984,6 +1018,7 @@ Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAs(
     return out;
   }
   if (!persistentZeroReadSerial(out.serial) || out.serial == 0) {
+    out.reference = PersistentZeroResult::Reference::Unchanged;
     out.detail = "drive serial identity (0x1018:04) is unavailable";
     return out;
   }

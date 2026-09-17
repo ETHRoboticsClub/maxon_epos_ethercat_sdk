@@ -34,6 +34,7 @@
 
 #include <yaml-cpp/yaml.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -160,6 +161,28 @@ class Maxon : public ecat_master::EthercatDevice {
   // Narrow hardware boundary for the persistent-zero protocol. Production uses
   // the real SDO/PDO path; tests override only these external observations while
   // executing the same transaction algorithm.
+  // Expedited SDO for the protocol above in either bus state: queued through
+  // the cyclic owner's async mailbox while the bus is in OP (a synchronous
+  // transfer is refused there), synchronous once the bus has left OP. Bounded
+  // by the mailbox transaction timeout. Values are little-endian in `size` bytes.
+  bool persistentZeroSdo(uint16_t index, uint8_t subindex, uint8_t size, bool write, uint32_t& value);
+  template <typename Value> bool persistentZeroSdoRead(uint16_t index, uint8_t subindex, Value& out) {
+    uint32_t raw = 0;
+    if (!persistentZeroSdo(index, subindex, sizeof(Value), false, raw)) return false;
+    out = static_cast<Value>(raw);
+    return true;
+  }
+  template <typename Value> bool persistentZeroSdoVerifyWrite(uint16_t index, uint8_t subindex, Value value) {
+    uint32_t raw = static_cast<uint32_t>(value) & (sizeof(Value) == 4 ? 0xffffffffu : ((1u << (8 * sizeof(Value))) - 1));
+    if (!persistentZeroSdo(index, subindex, sizeof(Value), true, raw)) return false;
+    // Same allowance as sdoVerifyWrite: an object that latches late gets one
+    // re-read after the configured settling time.
+    Value readback{};
+    if (persistentZeroSdoRead(index, subindex, readback) && readback == value) return true;
+    persistentZeroSleepFor(std::chrono::milliseconds(
+        std::max(1u, configuration_.configRunSdoVerifyTimeout / 1000u)));
+    return persistentZeroSdoRead(index, subindex, readback) && readback == value;
+  }
   virtual bool persistentZeroReadSerial(uint32_t& serial);
   virtual bool persistentZeroVerifyMethod(int8_t method);
   virtual bool persistentZeroVerifyHomePosition(int32_t position);

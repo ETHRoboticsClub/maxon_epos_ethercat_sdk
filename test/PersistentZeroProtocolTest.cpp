@@ -39,6 +39,7 @@ class ProtocolMaxon final : public Maxon {
     reading_.setTimePointNow();
   }
 
+  bool serialReadOk{true};
   bool displayedModeAccepted{true};
   bool completeOnStart{true};
   // Statusword state bits the drive reports once Method 37 completes; the
@@ -70,7 +71,7 @@ class ProtocolMaxon final : public Maxon {
  protected:
   bool persistentZeroReadSerial(uint32_t& serial) override {
     serial = 0x12345678;
-    return true;
+    return serialReadOk;
   }
 
   bool persistentZeroVerifyMethod(int8_t method) override {
@@ -203,6 +204,25 @@ TEST(PersistentZeroProtocol, DisabledDriveThatEnablesDuringMethod37IsUnknown) {
 
   EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Unknown);
   EXPECT_NE(result.detail.find("left SwitchOnDisabled"), std::string::npos);
+}
+
+TEST(PersistentZeroProtocol, UnreadableSerialIsUnchangedWithoutWrites) {
+  // The identity read precedes every mutation: its failure leaves the drive
+  // exactly as found, and must not be reported as an unknown reference.
+  ProtocolMaxon maxon;
+  maxon.serialReadOk = false;
+  const auto result = maxon.referenceCurrentPositionAsZero();
+  EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Unchanged);
+  EXPECT_EQ(result.persistence, Maxon::PersistentZeroResult::Persistence::NotAttempted);
+  EXPECT_NE(result.detail.find("0x1018:04"), std::string::npos);
+  EXPECT_TRUE(maxon.methodWrites.empty());
+  EXPECT_TRUE(maxon.homePositionWrites.empty());
+  EXPECT_TRUE(maxon.stagedModes.empty());
+  EXPECT_TRUE(maxon.homingStartEdges.empty());
+  const auto persisted = maxon.persistReferencedZero();
+  EXPECT_EQ(persisted.persistence, Maxon::PersistentZeroResult::Persistence::NotAttempted);
+  EXPECT_TRUE(maxon.gainWrites.empty());
+  EXPECT_EQ(maxon.storeCalls, 0u);
 }
 
 TEST(PersistentZeroProtocol, OtherDriveStatesAreRefusedWithoutWrites) {
