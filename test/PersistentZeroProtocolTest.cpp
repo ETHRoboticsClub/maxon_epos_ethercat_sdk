@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -14,6 +15,8 @@ namespace maxon {
 namespace {
 
 constexpr uint16_t kSwitchOnDisabled = 1u << 6;
+constexpr uint16_t kOperationEnabled = 0x0027;
+constexpr uint16_t kQuickStopActive = 0x0007;
 constexpr uint16_t kHomingAttained = 1u << 12;
 constexpr uint16_t kHomingError = 1u << 13;
 constexpr uint16_t kPositionReferenced = 1u << 15;
@@ -38,6 +41,11 @@ class ProtocolMaxon final : public Maxon {
 
   bool displayedModeAccepted{true};
   bool completeOnStart{true};
+  // Statusword state bits the drive reports once Method 37 completes; the
+  // default keeps whatever state the test armed the drive in.
+  std::optional<uint16_t> stateAfterCompletion;
+  bool homeReferenceReadOk{true};
+  int32_t homeReference{-1628};
   bool freshCompletion{true};
   bool includeReferencedBit{true};
   bool includeHomingError{false};
@@ -76,10 +84,16 @@ class ProtocolMaxon final : public Maxon {
   }
 
   bool persistentZeroReadDisplayedMode(int8_t& mode) override {
-    mode = static_cast<int8_t>(displayedModeAccepted
-        ? ModeOfOperationEnum::HomingMode
+    // 0x6061 follows the last staged mode; a refusing drive stays in JVPT.
+    mode = static_cast<int8_t>(displayedModeAccepted && !stagedModes.empty()
+        ? stagedModes.back()
         : ModeOfOperationEnum::CyclicJVPTMode);
     return true;
+  }
+
+  bool persistentZeroReadHomeReference(int32_t& value) override {
+    value = homeReference;
+    return homeReferenceReadOk;
   }
 
   bool persistentZeroReadActualPosition(int32_t& position) override {
@@ -111,7 +125,9 @@ class ProtocolMaxon final : public Maxon {
     homingStartEdges.push_back(start);
     controlwords.push_back(controlword_.getRawControlword());
     if (!start || !completeOnStart) return;
-    uint16_t status = kSwitchOnDisabled | kHomingAttained;
+    const uint16_t state = stateAfterCompletion ? *stateAfterCompletion
+        : static_cast<uint16_t>(reading_.getRawStatusword() & 0x006F);
+    uint16_t status = state | kHomingAttained;
     if (includeReferencedBit) status |= kPositionReferenced;
     if (includeHomingError) status |= kHomingError;
     reading_.setStatusword(status);
@@ -141,6 +157,73 @@ TEST(PersistentZeroProtocol, ReferencesAtZeroWithoutEnablingTorque) {
   for (const auto controlword : drive.controlwords) {
     EXPECT_EQ(controlword & (1u << 3), 0u) << "Method 37 must not enable operation";
   }
+}
+
+TEST(PersistentZeroProtocol, ReferencesAnEnabledDriveAndRestoresJvptAtTheReference) {
+  ProtocolMaxon drive;
+  drive.setStatusword(kOperationEnabled);
+  drive.actualPosition = -125;
+
+  const auto result = drive.referenceCurrentPositionAs(-M_PI / 4.0);
+
+  EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Applied);
+  EXPECT_EQ(result.persistence, Maxon::PersistentZeroResult::Persistence::NotAttempted);
+  ASSERT_TRUE(result.homeReference.has_value());
+  EXPECT_EQ(*result.homeReference, -1628);
+  EXPECT_EQ(drive.homePositionWrites, std::vector<int32_t>({-125}));
+  ASSERT_EQ(drive.stagedModes,
+            (std::vector<ModeOfOperationEnum>{ModeOfOperationEnum::HomingMode,
+                                              ModeOfOperationEnum::CyclicJVPTMode}));
+  // The handover target is the reference itself, not a pre-shift sample.
+  EXPECT_DOUBLE_EQ(drive.stagedCommands[1].getTargetJointPosition(), -M_PI / 4.0);
+  EXPECT_DOUBLE_EQ(drive.stagedCommands[1].getTargetJointVelocity(), 0.0);
+  EXPECT_DOUBLE_EQ(drive.stagedCommands[1].getTargetJointTorque(), 0.0);
+  EXPECT_EQ(drive.homingStartEdges, std::vector<bool>({false, true, false}));
+  EXPECT_EQ(drive.storeCalls, 0u);
+}
+
+TEST(PersistentZeroProtocol, EnabledDriveThatDropsOutDuringMethod37IsUnknown) {
+  ProtocolMaxon drive;
+  drive.setStatusword(kOperationEnabled);
+  drive.stateAfterCompletion = kSwitchOnDisabled;
+
+  const auto result = drive.referenceCurrentPositionAsZero();
+
+  EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Unknown);
+  EXPECT_NE(result.detail.find("left OperationEnabled"), std::string::npos);
+  EXPECT_EQ(drive.actualPositionReads, 0u);
+  EXPECT_EQ(drive.homingStartEdges.back(), false);
+}
+
+TEST(PersistentZeroProtocol, DisabledDriveThatEnablesDuringMethod37IsUnknown) {
+  ProtocolMaxon drive;
+  drive.stateAfterCompletion = kOperationEnabled;
+
+  const auto result = drive.referenceCurrentPositionAsZero();
+
+  EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Unknown);
+  EXPECT_NE(result.detail.find("left SwitchOnDisabled"), std::string::npos);
+}
+
+TEST(PersistentZeroProtocol, OtherDriveStatesAreRefusedWithoutWrites) {
+  ProtocolMaxon drive;
+  drive.setStatusword(kQuickStopActive);
+
+  const auto result = drive.referenceCurrentPositionAsZero();
+
+  EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Unchanged);
+  EXPECT_TRUE(drive.methodWrites.empty());
+  EXPECT_TRUE(drive.stagedModes.empty());
+}
+
+TEST(PersistentZeroProtocol, MissingHomeReferenceReadbackKeepsTheAppliedResult) {
+  ProtocolMaxon drive;
+  drive.homeReferenceReadOk = false;
+
+  const auto result = drive.referenceCurrentPositionAsZero();
+
+  EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Applied);
+  EXPECT_FALSE(result.homeReference.has_value());
 }
 
 TEST(PersistentZeroProtocol, RejectsCompletionWithoutANewerPdoSample) {

@@ -39,6 +39,7 @@
 #include <cstdint>
 #include <ethercat_sdk_master/EthercatDevice.hpp>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <functional>
 
@@ -96,6 +97,12 @@ class Maxon : public ecat_master::EthercatDevice {
   bool getStatuswordViaSdo(Statusword& statusword);
   bool setControlwordViaSdo(Controlword& controlword);
   bool setDriveStateViaSdo(const DriveState& driveState);
+  // De-energize over the mailbox. From Fault a fault reset (transition 15)
+  // lands in SwitchOnDisabled; from every other state, and when the
+  // statusword cannot be read, the CiA-402 "Disable voltage" controlword
+  // (0x6040 = 0x0000) is written blind. True only when a re-read statusword
+  // confirms SwitchOnDisabled. Blocking SDO: not while PDOs cycle.
+  bool disableVoltageViaSdo();
   bool resetDefaultViaSdo();
   bool readSIUnitSDO();
   bool readMaxSystemSpeedSDO();
@@ -125,14 +132,21 @@ class Maxon : public ecat_master::EthercatDevice {
     enum class Reference { Unchanged, Applied, Unknown } reference{Reference::Unknown};
     enum class Persistence { NotAttempted, Persisted, Failed, Unknown } persistence{Persistence::NotAttempted};
     uint32_t serial{0};
+    // Home Reference Position (0x30B5:01) read back after an applied reference:
+    // the value the drive keeps in RAM until save-all or a power cycle.
+    std::optional<int32_t> homeReference;
     std::string detail;
   };
 
-  // Deliberate maintenance operation. Method 37 performs no commanded motion:
-  // it makes the current physical position the zero, verifies a fresh homing
-  // completion edge and zero readback, restores the configured JVPT gains, and
-  // only then issues CiA-301 save-all. One call is one attempt; callers must not
-  // retry an indeterminate result automatically.
+  // Deliberate maintenance operations. Method 37 performs no commanded motion:
+  // it makes the current physical position the reference, verifies a fresh
+  // homing completion edge and the position readback, and leaves the drive in
+  // the CiA-402 state it started in. A SwitchOnDisabled drive stays disabled in
+  // HomingMode; an OperationEnabled drive is returned to CyclicJVPTMode at the
+  // reference it now reports (its power stage stays on throughout). The
+  // reference lives in RAM until persistReferencedZero() issues CiA-301
+  // save-all, which needs a SwitchOnDisabled drive and no cyclic PDO traffic.
+  // One call is one attempt; callers must not retry an indeterminate result.
   PersistentZeroResult referenceCurrentPositionAsZero(
       const std::function<bool()>& cancelled = [] { return false; });
   PersistentZeroResult referenceCurrentPositionAs(
@@ -140,6 +154,7 @@ class Maxon : public ecat_master::EthercatDevice {
   PersistentZeroResult persistReferencedZero(
       const std::function<bool()>& cancelled = [] { return false; });
   bool readDeviceSerialNumber(uint32_t& serial);
+  bool readHomeReference(int32_t& homeReference);
 
  protected:
   // Narrow hardware boundary for the persistent-zero protocol. Production uses
@@ -150,6 +165,7 @@ class Maxon : public ecat_master::EthercatDevice {
   virtual bool persistentZeroVerifyHomePosition(int32_t position);
   virtual bool persistentZeroReadDisplayedMode(int8_t& mode);
   virtual bool persistentZeroReadActualPosition(int32_t& position);
+  virtual bool persistentZeroReadHomeReference(int32_t& homeReference);
   virtual bool persistentZeroVerifyJvptGain(uint8_t subindex, uint32_t value);
   virtual bool persistentZeroStoreParameters();
   virtual Reading persistentZeroReading() const;
@@ -158,6 +174,9 @@ class Maxon : public ecat_master::EthercatDevice {
   virtual void persistentZeroSleepFor(std::chrono::milliseconds duration);
 
   bool stateTransitionViaSdo(const StateTransition& stateTransition);
+  // Re-reads the statusword a bounded number of times until it shows
+  // driveState. False on the first failed read.
+  bool confirmDriveStateViaSdo(const DriveState& driveState);
 
   // PDO
  public:

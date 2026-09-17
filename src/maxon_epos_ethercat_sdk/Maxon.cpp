@@ -157,8 +157,10 @@ bool Maxon::startup() {
 }
 
 void Maxon::preShutdown() {
-  // setDriveStateViaSdo(DriveState::QuickStopActive);
-  setDriveStateViaSdo(DriveState::SwitchOnDisabled);
+  if (!disableVoltageViaSdo()) {
+    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::preShutdown] '"
+                      << name_ << "' NOT confirmed SwitchOnDisabled");
+  }
 }
 
 void Maxon::shutdown() {
@@ -916,6 +918,14 @@ bool Maxon::persistentZeroReadActualPosition(int32_t& position) {
   return sendSdoRead(OD_INDEX_JOINT_POSITION_ACTUAL, 0x00, false, position);
 }
 
+bool Maxon::persistentZeroReadHomeReference(int32_t& homeReference) {
+  return readHomeReference(homeReference);
+}
+
+bool Maxon::readHomeReference(int32_t& homeReference) {
+  return sendSdoRead(OD_INDEX_HOME_REFERENCE_STATE, 0x01, false, homeReference);
+}
+
 bool Maxon::persistentZeroVerifyJvptGain(uint8_t subindex, uint32_t value) {
   return sdoVerifyWrite(OD_INDEX_JVPT_PARAMETERS, subindex, false, value,
                         configuration_.configRunSdoVerifyTimeout);
@@ -956,13 +966,17 @@ Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAs(
     return out;
   }
   const auto homePosition = static_cast<int32_t>(std::llround(increments));
-  const auto restoreSafeJvpt = [this]() {
+  const auto stageJvptAt = [this](double target) {
     Command safe;
     safe.setModeOfOperation(ModeOfOperationEnum::CyclicJVPTMode);
-    safe.setTargetJointPosition(persistentZeroReading().getActualJointPosition());
+    safe.setTargetJointPosition(target);
     safe.setTargetJointVelocity(0.0);
     safe.setTargetJointTorque(0.0);
     persistentZeroStageCommand(safe);
+  };
+  // Leaves HomingMode without moving: the target is what the drive reports now.
+  const auto restoreSafeJvpt = [this, &stageJvptAt]() {
+    stageJvptAt(persistentZeroReading().getActualJointPosition());
   };
   if (cancelled()) {
     out.reference = PersistentZeroResult::Reference::Unchanged;
@@ -974,11 +988,17 @@ Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAs(
     return out;
   }
 
-  if (persistentZeroReading().getDriveState() != DriveState::SwitchOnDisabled) {
+  // Method 37 needs no power stage, but it runs on an enabled drive too: the
+  // homing-mode position loop keeps the joint where it is and the frame shift
+  // is applied without motion. Any other CiA-402 state is refused.
+  const DriveState entryState = persistentZeroReading().getDriveState();
+  const bool enabled = entryState == DriveState::OperationEnabled;
+  if (!enabled && entryState != DriveState::SwitchOnDisabled) {
     out.reference = PersistentZeroResult::Reference::Unchanged;
-    out.detail = "drive was not SwitchOnDisabled before Method-37 preparation";
+    out.detail = "drive was neither SwitchOnDisabled nor OperationEnabled before Method-37 preparation";
     return out;
   }
+  const std::string entryStateName = enabled ? "OperationEnabled" : "SwitchOnDisabled";
 
   const int8_t method = 37;
   if (cancelled()) {
@@ -1012,17 +1032,18 @@ Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAs(
     return out;
   }
   persistentZeroStageCommand(command);
-  bool homingMode = false;
-  for (unsigned i = 0; i < 20; ++i) {
-    int8_t displayedMode = 0;
-    if (persistentZeroReadDisplayedMode(displayedMode) &&
-        displayedMode == static_cast<int8_t>(ModeOfOperationEnum::HomingMode)) {
-      homingMode = true;
-      break;
+  const auto displayedModeIs = [this](ModeOfOperationEnum expected) {
+    for (unsigned i = 0; i < 20; ++i) {
+      int8_t displayedMode = 0;
+      if (persistentZeroReadDisplayedMode(displayedMode) &&
+          displayedMode == static_cast<int8_t>(expected)) {
+        return true;
+      }
+      persistentZeroSleepFor(std::chrono::milliseconds(10));
     }
-    persistentZeroSleepFor(std::chrono::milliseconds(10));
-  }
-  if (!homingMode) {
+    return false;
+  };
+  if (!displayedModeIs(ModeOfOperationEnum::HomingMode)) {
     restoreSafeJvpt();
     out.reference = PersistentZeroResult::Reference::Unchanged;
     out.detail = "drive did not confirm HomingMode on 0x6061";
@@ -1060,19 +1081,21 @@ Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAs(
   for (unsigned i = 0; i < 100; ++i) {
     if (cancelled()) {
       persistentZeroSetHomingStart(false);
+      if (enabled) restoreSafeJvpt();
       out.reference = PersistentZeroResult::Reference::Unknown;
       out.detail = "cancelled after Method-37 trigger; reference outcome is unknown";
       return out;
     }
     const auto reading = persistentZeroReading();
-    if (reading.getDriveState() != DriveState::SwitchOnDisabled) {
+    if (reading.getDriveState() != entryState) {
       persistentZeroSetHomingStart(false);
       out.reference = PersistentZeroResult::Reference::Unknown;
-      out.detail = "drive left SwitchOnDisabled during Method 37";
+      out.detail = "drive left " + entryStateName + " during Method 37";
       return out;
     }
     if ((reading.getRawStatusword() & (1u << 13)) != 0) {
       persistentZeroSetHomingStart(false);
+      if (enabled) restoreSafeJvpt();
       out.reference = PersistentZeroResult::Reference::Unknown;
       out.detail = "drive reported a Method-37 homing error";
       return out;
@@ -1088,6 +1111,7 @@ Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAs(
   }
   persistentZeroSetHomingStart(false);
   if (!finished) {
+    if (enabled) restoreSafeJvpt();
     out.reference = PersistentZeroResult::Reference::Unknown;
     out.persistence = PersistentZeroResult::Persistence::NotAttempted;
     out.detail = "Method-37 completion was not observed before the deadline";
@@ -1099,24 +1123,40 @@ Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAs(
   int32_t reportedPosition = 1;
   if (!std::isfinite(ageUs) || ageUs < 0.0 || ageUs > 100000.0 ||
       !persistentZeroReadActualPosition(reportedPosition)) {
+    if (enabled) restoreSafeJvpt();
     out.reference = PersistentZeroResult::Reference::Unknown;
     out.persistence = PersistentZeroResult::Persistence::NotAttempted;
     out.detail = "fresh resulting position feedback could not be verified";
     return out;
   }
   if (reportedPosition != homePosition) {
+    if (enabled) restoreSafeJvpt();
     out.reference = PersistentZeroResult::Reference::Unknown;
     out.persistence = PersistentZeroResult::Persistence::NotAttempted;
     out.detail = "Method 37 completed but 0x6064 did not read back the requested reference";
     return out;
   }
+  int32_t homeReference = 0;
+  if (persistentZeroReadHomeReference(homeReference)) out.homeReference = homeReference;
   out.reference = PersistentZeroResult::Reference::Applied;
-  if (persistentZeroReading().getDriveState() != DriveState::SwitchOnDisabled) {
+  if (enabled) {
+    // The drive now reports the requested reference at this physical spot, so
+    // holding that value in the position loop is a no-motion handover.
+    stageJvptAt(positionRad);
+    if (!displayedModeIs(ModeOfOperationEnum::CyclicJVPTMode)) {
+      out.reference = PersistentZeroResult::Reference::Unknown;
+      out.detail = "reference read back but the drive did not confirm CyclicJVPTMode on 0x6061";
+      return out;
+    }
+  }
+  if (persistentZeroReading().getDriveState() != entryState) {
     out.reference = PersistentZeroResult::Reference::Unknown;
-    out.detail = "reference read back but the drive did not return to SwitchOnDisabled";
+    out.detail = "reference read back but the drive did not stay " + entryStateName;
     return out;
   }
-  out.detail = "requested position reference verified in RAM; drive returned to SwitchOnDisabled";
+  out.detail = enabled
+      ? "requested position reference verified in RAM; drive restored to CyclicJVPTMode at the reference"
+      : "requested position reference verified in RAM; drive returned to SwitchOnDisabled";
   return out;
 }
 
@@ -1173,47 +1213,75 @@ Maxon::PersistentZeroResult Maxon::persistReferencedZero(
 }
 
 
+// A mailbox controlword takes effect within the drive's next state-machine
+// cycle; a few re-reads cover it without an open-ended wait. A read that fails
+// outright ends the confirmation: a dead mailbox does not recover in 10 ms and
+// every failed read costs the SOEM mailbox timeout.
+static constexpr unsigned kSdoStateConfirmReads = 5;
+static constexpr std::chrono::milliseconds kSdoStateConfirmInterval{10};
+
+bool Maxon::disableVoltageViaSdo() {
+  Statusword statusword;
+  if (getStatuswordViaSdo(statusword)) {
+    const DriveState current = statusword.getDriveState();
+    if (current == DriveState::SwitchOnDisabled) return true;
+    if (current == DriveState::Fault) {
+      if (!stateTransitionViaSdo(StateTransition::_15)) return false;
+      return confirmDriveStateViaSdo(DriveState::SwitchOnDisabled);
+    }
+  } else {
+    MELO_WARN_STREAM("[maxon_epos_ethercat_sdk:Maxon::disableVoltageViaSdo] '"
+                     << name_ << "': statusword unreadable; writing Disable voltage blind");
+  }
+  // Transitions 7, 9, 10 and 12 all encode "Disable voltage" (bits 1 and 7
+  // clear); 0x0000 carries none of the profile-mode flags Controlword adds.
+  const uint16_t disableVoltage = 0x0000;
+  if (!sendSdoWrite(OD_INDEX_CONTROLWORD, 0x00, false, disableVoltage)) {
+    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::disableVoltageViaSdo] '"
+                      << name_ << "': controlword write failed");
+    addErrorToReading(ErrorType::SdoStateTransitionError);
+    return false;
+  }
+  return confirmDriveStateViaSdo(DriveState::SwitchOnDisabled);
+}
+
+bool Maxon::confirmDriveStateViaSdo(const DriveState& driveState) {
+  for (unsigned attempt = 0; attempt < kSdoStateConfirmReads; ++attempt) {
+    if (attempt > 0) std::this_thread::sleep_for(kSdoStateConfirmInterval);
+    Statusword statusword;
+    if (!getStatuswordViaSdo(statusword)) {
+      MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::confirmDriveStateViaSdo] '"
+                        << name_ << "': statusword unreadable after the transition; "
+                        << driveState << " NOT confirmed");
+      addErrorToReading(ErrorType::SdoStateTransitionError);
+      return false;
+    }
+    if (statusword.getDriveState() == driveState) return true;
+  }
+  MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::confirmDriveStateViaSdo] '"
+                    << name_ << "': " << driveState << " NOT reached after the transition");
+  addErrorToReading(ErrorType::SdoStateTransitionError);
+  return false;
+}
+
 bool Maxon::setDriveStateViaSdo(const DriveState& driveState) {
+  // The lowest state reachable over EtherCAT and the de-energize target: it
+  // must not depend on a readable statusword.
+  if (driveState == DriveState::SwitchOnDisabled) return disableVoltageViaSdo();
+
   bool success = true;
   Statusword currentStatusword;
-  success &= getStatuswordViaSdo(currentStatusword);
+  if (!getStatuswordViaSdo(currentStatusword)) {
+    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::setDriveStateViaSdo] '"
+                      << name_ << "': statusword unreadable; no transition sequenced");
+    addErrorToReading(ErrorType::SdoStateTransitionError);
+    return false;
+  }
   DriveState currentDriveState = currentStatusword.getDriveState();
 
   // do the adequate state changes (via sdo) depending on the requested and
   // current drive states
   switch (driveState) {
-    // Target: switch on disabled
-    // This is the lowest state in which the state machine can be brought over
-    // EtherCAT
-    case DriveState::SwitchOnDisabled:
-      switch (currentDriveState) {
-        case DriveState::SwitchOnDisabled:
-          success &= true;
-          break;
-        case DriveState::ReadyToSwitchOn:
-          success &= stateTransitionViaSdo(StateTransition::_7);
-          break;
-        case DriveState::SwitchedOn:
-          success &= stateTransitionViaSdo(StateTransition::_10);
-          break;
-        case DriveState::OperationEnabled:
-          success &= stateTransitionViaSdo(StateTransition::_9);
-          break;
-        case DriveState::QuickStopActive:
-          success &= stateTransitionViaSdo(StateTransition::_12);
-          break;
-        case DriveState::Fault:
-          success &= stateTransitionViaSdo(StateTransition::_15);
-          break;
-        default:
-          MELO_ERROR_STREAM(
-              "[maxon_epos_ethercat_sdk:Maxon::setDriveStateViaSdo] State "
-              "Transition not implemented");
-          addErrorToReading(ErrorType::SdoStateTransitionError);
-          success = false;
-      }
-      break;
-
     case DriveState::ReadyToSwitchOn:
       switch (currentDriveState) {
         case DriveState::SwitchOnDisabled:
