@@ -193,6 +193,7 @@ class Maxon : public ecat_master::EthercatDevice {
   virtual bool persistentZeroReadSerial(uint32_t& serial);
   virtual bool persistentZeroVerifyMethod(int8_t method);
   virtual bool persistentZeroVerifyHomePosition(int32_t position);
+  virtual bool persistentZeroReadHomePosition(int32_t& position);
   virtual bool persistentZeroReadDisplayedMode(int8_t& mode);
   virtual bool persistentZeroReadActualPosition(int32_t& position);
   virtual bool persistentZeroReadHomeReference(int32_t& homeReference);

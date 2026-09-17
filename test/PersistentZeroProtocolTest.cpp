@@ -54,6 +54,9 @@ class ProtocolMaxon final : public Maxon {
   int32_t actualPosition{0};
   // 0x6064 in the completion cycle relative to the requested Home Position.
   int32_t pdoOffsetAfterHoming{0};
+  // 0x30B0 as read back after completion; default: what was written.
+  std::optional<int32_t> homePositionAfterHoming;
+  bool homePositionReadOk{true};
   bool storeOk{true};
   unsigned storeCalls{0};
   unsigned actualPositionReads{0};
@@ -84,6 +87,12 @@ class ProtocolMaxon final : public Maxon {
   bool persistentZeroVerifyHomePosition(int32_t position) override {
     homePositionWrites.push_back(position);
     return true;
+  }
+
+  bool persistentZeroReadHomePosition(int32_t& position) override {
+    position = homePositionAfterHoming ? *homePositionAfterHoming
+        : homePositionWrites.empty() ? 0 : homePositionWrites.back();
+    return homePositionReadOk;
   }
 
   bool persistentZeroReadDisplayedMode(int8_t& mode) override {
@@ -342,6 +351,17 @@ TEST(PersistentZeroProtocol, ToleratesLimbMotionWithinTheStationarityBudgetAfter
   const auto refused = floorOnly.referenceCurrentPositionAsZero();
   EXPECT_EQ(refused.reference, Maxon::PersistentZeroResult::Reference::Unknown);
   EXPECT_NE(refused.detail.find("tolerance 2"), std::string::npos) << refused.detail;
+}
+
+TEST(PersistentZeroProtocol, HomePositionRegisterMustStillHoldTheRequestedValue) {
+  ProtocolMaxon changed;
+  changed.homePositionAfterHoming = 7;
+  const auto result = changed.referenceCurrentPositionAs(-M_PI / 4.0);
+  EXPECT_EQ(result.reference, Maxon::PersistentZeroResult::Reference::Unknown);
+  EXPECT_NE(result.detail.find("0x30B0) reads 7 against requested -125"), std::string::npos) << result.detail;
+  ProtocolMaxon unreadable;
+  unreadable.homePositionReadOk = false;
+  EXPECT_EQ(unreadable.referenceCurrentPositionAsZero().reference, Maxon::PersistentZeroResult::Reference::Unknown);
 }
 
 TEST(PersistentZeroProtocol, RejectsPositionReadbackBeyondTolerance) {

@@ -945,6 +945,10 @@ bool Maxon::persistentZeroVerifyHomePosition(int32_t position) {
   return persistentZeroSdoVerifyWrite(OD_INDEX_HOME_POSITION, 0x00, position);
 }
 
+bool Maxon::persistentZeroReadHomePosition(int32_t& position) {
+  return persistentZeroSdoRead(OD_INDEX_HOME_POSITION, 0x00, position);
+}
+
 bool Maxon::persistentZeroReadDisplayedMode(int8_t& mode) {
   return persistentZeroSdoRead(OD_INDEX_MODES_OF_OPERATION_DISPLAY, 0x00, mode);
 }
@@ -1169,6 +1173,18 @@ Maxon::PersistentZeroResult Maxon::referenceCurrentPositionAs(
   // to that instant; the later SDO readback of 0x6064 confirms the channel and
   // shows how far a torque-free joint has moved since. Within the caller's
   // stationarity budget that is motion, not a wrong frame.
+  // The register Method 37 consumed: Home Position must still be the value
+  // the drive was told to take at the homing instant.
+  int32_t homePositionNow = 0;
+  if (!persistentZeroReadHomePosition(homePositionNow) || homePositionNow != homePosition) {
+    if (enabled) restoreSafeJvpt();
+    out.reference = PersistentZeroResult::Reference::Unknown;
+    out.persistence = PersistentZeroResult::Persistence::NotAttempted;
+    out.detail = "Method 37 completed but Home Position (0x30B0) reads " + std::to_string(homePositionNow) +
+        " against requested " + std::to_string(homePosition);
+    MELO_WARN_STREAM("[maxon_epos_ethercat_sdk:Maxon::referenceCurrentPositionAs] '" << name_ << "' " << out.detail);
+    return out;
+  }
   const double toleranceRad = std::isfinite(readbackToleranceRad) ? std::max(0.0, readbackToleranceRad) : 0.0;
   const int64_t toleranceCounts = std::max<int64_t>(kMinReadbackToleranceCounts, static_cast<int64_t>(
       toleranceRad * static_cast<double>(configuration_.positionEncoderResolution) / (2.0 * M_PI)));
