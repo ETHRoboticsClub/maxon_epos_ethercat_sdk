@@ -48,6 +48,7 @@ std::string errorCodeToString(uint16_t code) {
     case 0x1000: return "Generic error";
     case 0x2310: return "Overcurrent error";
     case 0x3210: return "Overvoltage error";
+    case 0x3220: return "Undervoltage error (supply below the drive's undervoltage threshold)";
     case 0x4210: return "Overtemperature error";
     case 0x6320: return "Software parameter error";
     case 0x8110: return "CAN overrun error (object lost)";
