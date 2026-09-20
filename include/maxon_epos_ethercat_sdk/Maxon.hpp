@@ -69,6 +69,9 @@ class Maxon : public ecat_master::EthercatDevice {
   // pure virtual overwrites
  public:
   bool startup() override;
+  // SDO disable-voltage with statusword confirmation. SAFE-OP only: refused
+  // (and reported) while the bus is in OP. De-energize over PDO while the
+  // cyclic frame runs; use this for the drives that did not confirm.
   void preShutdown() override;
   void shutdown() override;
   void updateWrite() override;

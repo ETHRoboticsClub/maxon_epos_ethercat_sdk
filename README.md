@@ -160,13 +160,26 @@ public:
 
     RCLCPP_INFO(this->get_logger(), "Shutdown started.");
 
-    // 1) PreShutdown while PDO loop still running
-    if (configurator_) {
-      for (const auto& master : configurator_->getMasters()) {
-        master->preShutdown();
-      }
-      RCLCPP_INFO(this->get_logger(), "preShutdown() called on masters.");
+    // 1) De-energize over PDO while the cyclic loop still runs. The bus refuses
+    //    synchronous SDOs in OP, and an EPOS4 keeps its power stage through
+    //    OP -> SAFE-OP -> INIT, so the controlword has to go out in the frame.
+    for (auto& m : maxons_) {
+      m->setDriveStateViaPdo(maxon::DriveState::SwitchOnDisabled, false);
     }
+    std::vector<std::shared_ptr<maxon::Maxon>> unconfirmed;
+    {
+      const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(300);
+      do {
+        unconfirmed.clear();
+        for (auto& m : maxons_) {
+          if (!m->lastPdoStateChangeSuccessful()) unconfirmed.push_back(m);
+        }
+        if (unconfirmed.empty()) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      } while (std::chrono::steady_clock::now() < deadline);
+    }
+    RCLCPP_INFO(this->get_logger(), "%zu/%zu drives confirmed SwitchOnDisabled over PDO.",
+                maxons_.size() - unconfirmed.size(), maxons_.size());
 
     // 2) Stop PDO loop and join worker thread
     abrt_.store(true);
@@ -175,7 +188,16 @@ public:
     }
     RCLCPP_INFO(this->get_logger(), "PDO worker thread joined.");
 
-    // 3) Stop each slave worker thread cleanly
+    // 3) Bus to SAFE-OP, then the SDO fallback (Maxon::preShutdown) for the
+    //    drives that did not confirm; each failure is reported by the SDK.
+    if (configurator_) {
+      for (const auto& master : configurator_->getMasters()) {
+        master->preShutdown(true);
+      }
+      RCLCPP_INFO(this->get_logger(), "Bus in SAFE-OP, SDO fallback done.");
+    }
+
+    // 4) Stop each slave worker thread cleanly
     if (configurator_) {
       for (const auto& slave : configurator_->getSlaves()) {
         slave->abort();
@@ -184,7 +206,7 @@ public:
       RCLCPP_INFO(this->get_logger(), "Slave worker threads stopped.");
     }
 
-    // 4) Shutdown masters (no EtherCAT comm possible afterwards)
+    // 5) Shutdown masters (no EtherCAT comm possible afterwards)
     if (configurator_) {
       for (const auto& master : configurator_->getMasters()) {
         master->shutdown();

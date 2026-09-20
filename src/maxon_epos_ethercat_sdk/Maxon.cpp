@@ -157,6 +157,17 @@ bool Maxon::startup() {
 }
 
 void Maxon::preShutdown() {
+  // Synchronous SDOs are refused while the bus is in OP; a blind attempt here
+  // would read like a dead mailbox. The PDO path (setDriveStateViaPdo) is the
+  // de-energize while the cyclic frame runs; this is the fallback after it.
+  if (bus_->cyclicActive()) {
+    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::preShutdown] '"
+                      << name_ << "': called while the bus is in OP; the SDO disable needs "
+                      "SAFE-OP (stop the cyclic loop and deactivate the bus first). "
+                      "NOT confirmed SwitchOnDisabled");
+    addErrorToReading(ErrorType::SdoStateTransitionError);
+    return;
+  }
   if (!disableVoltageViaSdo()) {
     MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::preShutdown] '"
                       << name_ << "' NOT confirmed SwitchOnDisabled");
