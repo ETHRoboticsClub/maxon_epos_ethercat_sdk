@@ -981,7 +981,14 @@ bool Maxon::persistentZeroVerifyJvptGain(uint8_t subindex, uint32_t value) {
   return persistentZeroSdoVerifyWrite(OD_INDEX_JVPT_PARAMETERS, subindex, value);
 }
 
-bool Maxon::persistentZeroStoreParameters() { return storeParam(); }
+bool Maxon::persistentZeroReadJvptGain(uint8_t subindex, uint32_t& value) {
+  return persistentZeroSdoRead(OD_INDEX_JVPT_PARAMETERS, subindex, value);
+}
+
+bool Maxon::persistentZeroStoreParameters() {
+  uint32_t signature = 0x65766173;
+  return persistentZeroSdo(OD_STORE_PARAM, 0x01, sizeof(signature), true, signature);
+}
 
 Reading Maxon::persistentZeroReading() const { return getReading(); }
 
@@ -1238,37 +1245,43 @@ Maxon::PersistentZeroResult Maxon::persistReferencedZero(
     out.detail = "drive serial identity (0x1018:04) is unavailable";
     return out;
   }
-  if (cancelled() || persistentZeroReading().getDriveState() != DriveState::SwitchOnDisabled) {
+  const auto state = persistentZeroReading().getDriveState();
+  if (cancelled() || (state != DriveState::SwitchOnDisabled && state != DriveState::OperationEnabled)) {
     out.persistence = PersistentZeroResult::Persistence::NotAttempted;
-    out.detail = "save-all requires an uncancelled SwitchOnDisabled drive";
+    out.detail = "save-all requires an uncancelled enabled or SwitchOnDisabled drive";
     return out;
   }
 
-  // Save-all includes controller parameters. Reassert and verify the configured
-  // baseline immediately before 0x1010 so a temporary damping/policy gain can
-  // never become the next boot's baseline.
+  // Save-all includes controller parameters. Changing an enabled drive's
+  // gains could change torque, so verify its configured baseline without
+  // writing; a disabled drive can still restore that baseline.
   const uint32_t baselineP = static_cast<uint32_t>(configuration_.jvptPGain);
   const uint32_t baselineD = static_cast<uint32_t>(configuration_.jvptDGain);
   if (cancelled()) {
     out.persistence = PersistentZeroResult::Persistence::NotAttempted;
-    out.detail = "cancelled before configured gain baseline restoration";
+    out.detail = "cancelled before configured gain baseline check";
     return out;
   }
-  bool baseline = persistentZeroVerifyJvptGain(0x01, baselineP);
+  uint32_t observedP = 0, observedD = 0;
+  bool baseline = state == DriveState::OperationEnabled
+      ? persistentZeroReadJvptGain(0x01, observedP) && observedP == baselineP
+      : persistentZeroVerifyJvptGain(0x01, baselineP);
   if (cancelled()) {
     out.persistence = PersistentZeroResult::Persistence::NotAttempted;
-    out.detail = "cancelled after P baseline restoration; save-all not attempted";
+    out.detail = "cancelled after P gain check; save-all not attempted";
     return out;
   }
-  baseline &= persistentZeroVerifyJvptGain(0x03, baselineD);
+  baseline &= state == DriveState::OperationEnabled
+      ? persistentZeroReadJvptGain(0x03, observedD) && observedD == baselineD
+      : persistentZeroVerifyJvptGain(0x03, baselineD);
   if (!baseline) {
     out.persistence = PersistentZeroResult::Persistence::NotAttempted;
-    out.detail = "configured JVPT baseline could not be restored; save-all not attempted";
+    out.detail = "configured JVPT baseline could not be verified; save-all not attempted";
     return out;
   }
   if (cancelled()) {
     out.persistence = PersistentZeroResult::Persistence::NotAttempted;
-    out.detail = "cancelled after baseline restoration; save-all not attempted";
+    out.detail = "cancelled after baseline check; save-all not attempted";
     return out;
   }
   if (!persistentZeroStoreParameters()) {

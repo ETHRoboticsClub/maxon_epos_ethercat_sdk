@@ -63,6 +63,8 @@ class ProtocolMaxon final : public Maxon {
   unsigned storeCalls{0};
   unsigned actualPositionReads{0};
   std::vector<std::pair<uint8_t, uint32_t>> gainWrites;
+  std::vector<uint8_t> gainReads;
+  std::optional<uint32_t> observedP, observedD;
   std::vector<int8_t> methodWrites;
   std::vector<int32_t> homePositionWrites;
   std::vector<ModeOfOperationEnum> stagedModes;
@@ -123,6 +125,12 @@ class ProtocolMaxon final : public Maxon {
 
   bool persistentZeroVerifyJvptGain(uint8_t subindex, uint32_t value) override {
     gainWrites.emplace_back(subindex, value);
+    return true;
+  }
+
+  bool persistentZeroReadJvptGain(uint8_t subindex, uint32_t& value) override {
+    gainReads.push_back(subindex);
+    value = subindex == 0x01 ? observedP.value_or(120) : observedD.value_or(34);
     return true;
   }
 
@@ -461,6 +469,30 @@ TEST(PersistentZeroProtocol, RestoresBaselineBeforeOneSaveAttempt) {
   EXPECT_EQ(drive.gainWrites,
             (std::vector<std::pair<uint8_t, uint32_t>>{{0x01, 120}, {0x03, 34}}));
   EXPECT_EQ(drive.storeCalls, 1u);
+}
+
+TEST(PersistentZeroProtocol, EnabledSaveReadsGainsWithoutChangingThem) {
+  ProtocolMaxon drive;
+  drive.setStatusword(kOperationEnabled);
+
+  const auto result = drive.persistReferencedZero();
+
+  EXPECT_EQ(result.persistence, Maxon::PersistentZeroResult::Persistence::Persisted);
+  EXPECT_EQ(drive.gainReads, (std::vector<uint8_t>{0x01, 0x03}));
+  EXPECT_TRUE(drive.gainWrites.empty());
+  EXPECT_EQ(drive.storeCalls, 1u);
+}
+
+TEST(PersistentZeroProtocol, EnabledSaveRefusesUnexpectedGainWithoutWriting) {
+  ProtocolMaxon drive;
+  drive.setStatusword(kOperationEnabled);
+  drive.observedD = 35;
+
+  const auto result = drive.persistReferencedZero();
+
+  EXPECT_EQ(result.persistence, Maxon::PersistentZeroResult::Persistence::NotAttempted);
+  EXPECT_TRUE(drive.gainWrites.empty());
+  EXPECT_EQ(drive.storeCalls, 0u);
 }
 
 TEST(PersistentZeroProtocol, LostSaveAcknowledgementIsUnknownAndNotRetried) {

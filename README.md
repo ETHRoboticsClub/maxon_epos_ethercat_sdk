@@ -6,7 +6,7 @@ This is a C++ library providing a high-level interface for controlling [Maxon](h
 
 The lower level EtherCAT communication is handled by the [soem_interface](https://github.com/leggedrobotics/soem_interface) library.
 
-The `ethrc` branch adds the persistent joint-zero protocol (`Maxon::referenceCurrentPositionAs`, `persistReferencedZero`: Method 37 in RAM, CiA-301 save-all in SAFE-OP, SDO over the async mailbox while the bus is in OP). Its contract and the bridge's use of it are documented in the controls repository at `docs/persistent-joint-zero.md`.
+The `ethrc` branch adds the persistent joint-zero protocol (`Maxon::referenceCurrentPositionAs`, `persistReferencedZero`: Method 37 in RAM, CiA-301 save-all through the async mailbox in OP). Its contract and the bridge's use of it are documented in the controls repository at `docs/persistent-joint-zero.md`.
 
 The `maxon_epos_ethercat_sdk` is developed on Ubuntu 20.04 LTS with [ROS Noetic](https://wiki.ros.org/noetic).
 

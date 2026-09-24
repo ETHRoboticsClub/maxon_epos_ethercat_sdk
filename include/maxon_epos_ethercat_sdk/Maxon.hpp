@@ -160,7 +160,9 @@ class Maxon : public ecat_master::EthercatDevice {
   // HomingMode; an OperationEnabled drive is returned to CyclicJVPTMode at the
   // reference it now reports (its power stage stays on throughout). The
   // reference lives in RAM until persistReferencedZero() issues CiA-301
-  // save-all, which needs a SwitchOnDisabled drive and no cyclic PDO traffic.
+  // save-all. In OP the cyclic owner keeps PDOs running while the async
+  // mailbox writes 0x1010:01; an enabled drive's configured gains are checked
+  // without changing them.
   // One call is one attempt; callers must not retry an indeterminate result.
   // The frame is proven by the fresh homing-attained/referenced edge and Home
   // Position (0x30B0) still reading the requested value; the 0x6064 deltas are
@@ -208,6 +210,7 @@ class Maxon : public ecat_master::EthercatDevice {
   virtual bool persistentZeroReadActualPosition(int32_t& position);
   virtual bool persistentZeroReadHomeReference(int32_t& homeReference);
   virtual bool persistentZeroVerifyJvptGain(uint8_t subindex, uint32_t value);
+  virtual bool persistentZeroReadJvptGain(uint8_t subindex, uint32_t& value);
   virtual bool persistentZeroStoreParameters();
   virtual Reading persistentZeroReading() const;
   virtual void persistentZeroStageCommand(const Command& command);
