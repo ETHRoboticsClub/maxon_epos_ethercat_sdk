@@ -35,6 +35,7 @@
 #include <chrono>
 #include <cmath>
 #include <map>
+#include <sstream>
 #include <thread>
 #include <algorithm>
 
@@ -77,10 +78,37 @@ Maxon::Maxon(const std::string& name, const uint32_t address) {
   name_ = name;
 }
 
+bool Maxon::preflightStartup() {
+  startupSerialFault_.clear();
+  startupSerialObserved_ = 0;
+  if (!bus_->waitForState(soem_interface_rsl::ETHERCAT_SM_STATE::PRE_OP, address_)) {
+    startupSerialFault_ = name_ + " slot " + std::to_string(address_) + ": PRE_OP unavailable for serial read";
+  } else {
+    uint32_t observed = 0;
+    if (readDeviceSerialNumber(observed) && observed != 0) startupSerialObserved_ = observed;
+    std::ostringstream fault;
+    if (!configuration_.expectedSerial) {
+      fault << name_ << " slot " << address_ << ": expected serial missing or invalid";
+    } else if (!startupSerialObserved_) {
+      fault << name_ << " slot " << address_ << ": installed serial unreadable; expected "
+            << *configuration_.expectedSerial;
+    } else if (startupSerialObserved_ != *configuration_.expectedSerial) {
+      fault << name_ << " slot " << address_ << ": installed serial " << startupSerialObserved_
+            << " differs from expected " << *configuration_.expectedSerial;
+    }
+    startupSerialFault_ = fault.str();
+  }
+  if (startupSerialFault_.empty()) return true;
+  MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::preflightStartup] " << startupSerialFault_);
+  addErrorToReading(ErrorType::ConfigurationError);
+  return false;
+}
+
 bool Maxon::startup() {
+  // Recheck immediately before configuration in case the physical slot changed
+  // after the bus-wide read-only pass.
+  if (!preflightStartup()) return false;
   bool success = true;
-  success &= bus_->waitForState(soem_interface_rsl::ETHERCAT_SM_STATE::PRE_OP,
-                                address_);
   // bus_->syncDistributedClock0(address_, true, timeStep_, timeStep_ / 2.f); //
   // Might not need
   //

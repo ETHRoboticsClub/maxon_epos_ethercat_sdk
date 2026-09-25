@@ -34,6 +34,7 @@
 
 #include <cstdint>
 #include <iostream>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -83,6 +84,7 @@ class Configuration {
   int8_t homingMethod{37};
   int32_t homingPosition{0};
   int32_t homingOffset{0};
+  std::optional<uint32_t> expectedSerial;
 
   // ANYDRIVE5 specific setings
 

@@ -68,7 +68,10 @@ class Maxon : public ecat_master::EthercatDevice {
 
   // pure virtual overwrites
  public:
+  bool preflightStartup() override;
   bool startup() override;
+  const std::string& startupSerialFault() const { return startupSerialFault_; }
+  uint32_t startupSerialObserved() const { return startupSerialObserved_; }
   // SDO disable-voltage with statusword confirmation. SAFE-OP only: refused
   // (and reported) while the bus is in OP. De-energize over PDO while the
   // cyclic frame runs; use this for the drives that did not confirm.
@@ -279,6 +282,8 @@ class Maxon : public ecat_master::EthercatDevice {
   Configuration configuration_;
 
  protected:
+  std::string startupSerialFault_;
+  uint32_t startupSerialObserved_{0};
   Command stagedCommand_;
   Reading reading_;
   RxPdoTypeEnum rxPdoTypeEnum_{RxPdoTypeEnum::NA};

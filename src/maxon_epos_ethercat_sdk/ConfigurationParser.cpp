@@ -31,6 +31,8 @@
 // clang-format on
 
 #include <cstdint>
+#include <limits>
+#include <stdexcept>
 
 #include "maxon_epos_ethercat_sdk/ConfigurationParser.hpp"
 
@@ -227,6 +229,20 @@ void ConfigurationParser::parseConfiguration(YAML::Node configNode) {
   /// The configuration options for the Maxon servo drive ("hardware")
   if (configNode["Hardware"].IsDefined()) {
     YAML::Node hardwareNode = configNode["Hardware"];
+
+    const auto serialNode = hardwareNode["homing_offset_serial"];
+    try {
+      if (!serialNode || !serialNode.IsScalar()) throw std::invalid_argument("missing scalar");
+      const auto encoded = serialNode.as<std::string>();
+      size_t consumed = 0;
+      const auto value = std::stoull(encoded, &consumed, 0);
+      if (consumed != encoded.size() || value == 0 || value > std::numeric_limits<uint32_t>::max())
+        throw std::invalid_argument("invalid serial");
+      configuration_.expectedSerial = static_cast<uint32_t>(value);
+    } catch (const std::exception&) {
+      MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:ConfigurationParser] Hardware.homing_offset_serial "
+                        "is missing or invalid; drive startup will be refused");
+    }
 
     std::vector<ModeOfOperationEnum> modesOfOperation;
     if (getModesFromFile(hardwareNode, "mode_of_operation", modesOfOperation)) {
