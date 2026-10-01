@@ -11,7 +11,7 @@ namespace maxon {
  *
  * The drive's joint VELOCITY objects are in milli-RPM, not milli-rad/s. The
  * rest of the block genuinely is milli-SI -- joint torque (0x3672) in mNm,
- * joint current (0x30D1:01) in mA -- which is why a bare *0.001 sat on the
+ * joint current (0x30D1:02) in mA -- which is why a bare *0.001 sat on the
  * velocity getter unnoticed and made every reported joint velocity ~9.55x too
  * large, in a field labelled rad/s all the way out to the dashboard.
  *

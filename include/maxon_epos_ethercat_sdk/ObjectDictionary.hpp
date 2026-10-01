@@ -137,6 +137,8 @@
 #define OD_INDEX_JOINT_VELOCITY_ACTUAL (0x606C)
 #define OD_INDEX_JOINT_POSITION_ACTUAL (0x6064)
 #define OD_INDEX_JOINT_CURRENT_ACTUAL (0x30D1)
+// Instantaneous current; subindex 0x01 is the 50 Hz first-order low-pass average.
+#define OD_SUBINDEX_JOINT_CURRENT_ACTUAL (0x02)
 
 #define OD_INDEX_TARGET_JOINT_TORQUE (0x34C3)
 #define OD_INDEX_TARGET_JOINT_VELOCITY (0x60FF)

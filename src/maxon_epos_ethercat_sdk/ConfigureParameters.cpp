@@ -438,7 +438,7 @@ bool Maxon::mapPdos(RxPdoTypeEnum rxPdoTypeEnum, TxPdoTypeEnum txPdoTypeEnum) {
           (OD_INDEX_JOINT_TORQUE_EST << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
           (OD_INDEX_JOINT_VELOCITY_ACTUAL << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
           (OD_INDEX_JOINT_POSITION_ACTUAL << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
-          (OD_INDEX_JOINT_CURRENT_ACTUAL << 16) | (0x01 << 8) | sizeof(int32_t) * 8,
+          (OD_INDEX_JOINT_CURRENT_ACTUAL << 16) | (OD_SUBINDEX_JOINT_CURRENT_ACTUAL << 8) | sizeof(int32_t) * 8,
           (OD_INDEX_TEMPERATURE << 16) | (0x02 << 8) | sizeof(int16_t) * 8,  // motor temp
           // (OD_INDEX_TEMPERATURE << 16) | (0x01 << 8) | sizeof(int16_t) * 8,  // power-stage temp (dropped from cyclic PDO)
           // (OD_INDEX_VELOCITY_DEMAND << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
@@ -514,7 +514,7 @@ bool Maxon::mapPdos(RxPdoTypeEnum rxPdoTypeEnum, TxPdoTypeEnum txPdoTypeEnum) {
           (OD_INDEX_JOINT_TORQUE_EST << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
           (OD_INDEX_JOINT_VELOCITY_ACTUAL << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
           (OD_INDEX_JOINT_POSITION_ACTUAL << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
-          (OD_INDEX_JOINT_CURRENT_ACTUAL << 16) | (0x01 << 8) | sizeof(int32_t) * 8,
+          (OD_INDEX_JOINT_CURRENT_ACTUAL << 16) | (OD_SUBINDEX_JOINT_CURRENT_ACTUAL << 8) | sizeof(int32_t) * 8,
           (OD_INDEX_VELOCITY_DEMAND << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
           (OD_INDEX_CURRENT_DEMAND << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
           (OD_INDEX_POSITION_DEMAND << 16) | (0x00 << 8) | sizeof(int32_t) * 8,

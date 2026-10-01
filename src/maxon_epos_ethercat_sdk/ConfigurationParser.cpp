@@ -274,7 +274,7 @@ void ConfigurationParser::parseConfiguration(YAML::Node configNode) {
     //
     // WHAT IT DOES NOT CHANGE: /<device>/status. standalone.cpp publishes
     // reading.getActualJointCurrent() and reading.getEstJointTorque(), the
-    // Anydrive5 getters, which are hardcoded *0.001 off 0x30D1:01 and 0x3672
+    // Anydrive5 getters, which are hardcoded *0.001 off 0x30D1:02 and 0x3672
     // and never touch these factors. getActualCurrent()/getActualTorque(), which
     // do use them, have no callers anywhere in the repo. Whether reported torque
     // is trustworthy is a separate, still-open question about the 0x3672 path.
