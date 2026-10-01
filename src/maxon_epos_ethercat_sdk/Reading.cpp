@@ -143,6 +143,10 @@ double Reading::getEstJointTorque() const {
   return static_cast<double>(estJointTorque_) * 0.001;
 }
 
+double Reading::getMotorSidePosition() const {
+  return static_cast<double>(motorSensorPosition_) * motorSensorFactorIntegerToRad_;
+}
+
 double Reading::getActualJointCurrent() const {
   return static_cast<double>(actualJointCurrent_) * 0.001;
 }

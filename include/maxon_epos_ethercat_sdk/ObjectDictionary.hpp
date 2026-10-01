@@ -139,6 +139,13 @@
 #define OD_INDEX_JOINT_CURRENT_ACTUAL (0x30D1)
 // Instantaneous current; subindex 0x01 is the 50 Hz first-order low-pass average.
 #define OD_SUBINDEX_JOINT_CURRENT_ACTUAL (0x02)
+// Motor-side incremental encoder (sensor 1), counted since drive power-up.
+#define OD_INDEX_ADDITIONAL_POSITION_ACTUAL (0x60E4)
+#define OD_SUBINDEX_MOTOR_SENSOR_POSITION (0x01)
+#define OD_INDEX_AXIS_CONFIGURATION (0x3000)
+#define OD_INDEX_DIGITAL_INCREMENTAL_ENCODER_1 (0x3010)
+// 0x3000:01 sensor 1 type (bits 7..0) for a digital incremental encoder.
+#define OD_VALUE_SENSOR_1_DIGITAL_INCREMENTAL (0x01)
 
 #define OD_INDEX_TARGET_JOINT_TORQUE (0x34C3)
 #define OD_INDEX_TARGET_JOINT_VELOCITY (0x60FF)

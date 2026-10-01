@@ -112,6 +112,9 @@ class Maxon : public ecat_master::EthercatDevice {
   bool disableVoltageViaSdo();
   bool resetDefaultViaSdo();
   bool readSIUnitSDO();
+  // Reads the motor encoder (0x3000:01, 0x3010:01) and gear (0x3003) and sets the
+  // joint-side scale of 0x60E4:01; false (scale NaN) when either is unusable.
+  bool readMotorSensorSDO();
   bool readMaxSystemSpeedSDO();
   bool readMaxProfileVelocitySDO();
   bool readVelocityControllerGainSDO();

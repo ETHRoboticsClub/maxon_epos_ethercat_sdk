@@ -100,12 +100,13 @@ struct TxPdoJVPT {
   int32_t actualJointVelocity_;
   int32_t actualJointPosition_;
   int32_t actualJointCurrent_;
-  // --- TxPDO is 6 objects: the 5 core feedbacks above + motor temperature
-  // (0x3201/0x02). Power-stage (psu) temperature was dropped from the cyclic
+  // --- TxPDO is 7 objects: the 5 core feedbacks above, motor temperature
+  // (0x3201/0x02) and the motor encoder position. Power-stage (psu) temperature was dropped from the cyclic
   // PDO to leave headroom under the "<=8 PDOs/direction" bound. Struct order
   // MUST match the mapping array in ConfigureParameters.cpp and the parse in
   // Maxon.cpp::updateRead.
   int16_t temeperature_motor;
+  int32_t motorSensorPosition_;  // 0x60E4:01, motor encoder increments
   // int16_t temeperature_psu;  // dropped from cyclic PDO (read via SDO if needed)
   // The remaining diagnostics stay off the cyclic PDO (read via SDO if needed):
   // int32_t velocityDemand;

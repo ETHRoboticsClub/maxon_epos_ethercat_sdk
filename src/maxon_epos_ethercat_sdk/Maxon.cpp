@@ -119,6 +119,8 @@ bool Maxon::startup() {
 
   // PDO mapping
   success &= mapPdos(rxPdoTypeEnum_, txPdoTypeEnum_);
+  // Telemetry only: a drive without a readable motor encoder reports NaN there.
+  readMotorSensorSDO();
 
   // Set Interpolation Time Period (0x60C2). The drive's internal interpolator
   // bridges between cyclic setpoints over this window — it MUST equal the
@@ -439,11 +441,12 @@ void Maxon::updateRead() {
       reading_.setActualJointVelocityRAW(txPdo.actualJointVelocity_);
       reading_.setActualJointCurrentRAW(txPdo.actualJointCurrent_);
       reading_.setEstJointTorqueRAW(txPdo.estJointTorque_);
-      // Motor temperature is on the cyclic PDO (6 objects total). Order MUST
+      // Motor temperature is on the cyclic PDO (7 objects total). Order MUST
       // match the TxPdoJVPT struct + the mapping array in
       // ConfigureParameters.cpp. Power-stage (psu) temperature was dropped from
       // the cyclic PDO (read via SDO if needed).
       reading_.setMotorTemperatureRAW(txPdo.temeperature_motor);
+      reading_.setMotorSensorPositionRAW(txPdo.motorSensorPosition_);
       // reading_.setPsuTemperatureRAW(txPdo.temeperature_psu);  // psu temp off cyclic PDO
       // These diagnostics remain off the cyclic PDO (read via SDO if needed).
       // Their Reading getters return defaults (0) until read via SDO.
@@ -818,6 +821,36 @@ bool Maxon::readSIUnitSDO() {
   }
 
   return success;
+}
+
+bool Maxon::readMotorSensorSDO() {
+  uint32_t sensors = 0, pulses = 0, gearNumerator = 0, gearDenominator = 0;
+  bool read = sendSdoRead(OD_INDEX_AXIS_CONFIGURATION, 0x01, false, sensors);
+  read &= sendSdoRead(OD_INDEX_DIGITAL_INCREMENTAL_ENCODER_1, 0x01, false, pulses);
+  read &= sendSdoRead(OD_INDEX_GEAR_DATA, 0x01, false, gearNumerator);
+  read &= sendSdoRead(OD_INDEX_GEAR_DATA, 0x02, false, gearDenominator);
+  const bool usable = read && (sensors & 0xFF) == OD_VALUE_SENSOR_1_DIGITAL_INCREMENTAL &&
+                      pulses > 0 && gearNumerator > 0 && gearDenominator > 0;
+  // Quadrature: four increments per encoder pulse; the gear divides motor turns.
+  const double factor = usable ? 2.0 * M_PI * gearDenominator /
+                                     (4.0 * pulses * static_cast<double>(gearNumerator))
+                               : std::numeric_limits<double>::quiet_NaN();
+  {
+    std::lock_guard<std::recursive_mutex> lock(readingMutex_);
+    reading_.setMotorSensorFactorIntegerToRad(factor);
+  }
+  if (usable) {
+    MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::readMotorSensorSDO] '" << name_
+        << "' motor encoder " << pulses << " pulses/rev, gear " << gearNumerator << "/"
+        << gearDenominator << ": " << factor * 1e6 << " urad per increment at the joint");
+  } else {
+    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::readMotorSensorSDO] '" << name_
+        << "': expected a digital incremental encoder as sensor 1 (0x3000:01) with pulses "
+        "(0x3010:01) and gear (0x3003) readable, got read=" << read << " sensors=0x" << std::hex
+        << sensors << std::dec << " pulses=" << pulses << " gear=" << gearNumerator << "/"
+        << gearDenominator << ", fallback=motor-side position reports NaN.");
+  }
+  return usable;
 }
 
 bool Maxon::readAccelerationLimitsSDO(){

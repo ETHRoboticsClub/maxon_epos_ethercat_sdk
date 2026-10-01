@@ -37,6 +37,7 @@
 #include <deque>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <string>
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -98,6 +99,9 @@ class Reading {
   double getDemandedJointCurrent() const;
 
   double getMotorTemperature() const;
+  // Motor encoder position through the gear, joint-side rad, zero at drive
+  // power-up (incremental). NaN when the drive's encoder setup was unusable.
+  double getMotorSidePosition() const;
   double getPsuTemperature() const;
 
   double getI2tMotor() const;
@@ -153,6 +157,9 @@ class Reading {
 
   void setActualJointCurrentRAW(int32_t actualJointCurrent);
 
+  void setMotorSensorPositionRAW(int32_t motorSensorPosition) { motorSensorPosition_ = motorSensorPosition; }
+  void setMotorSensorFactorIntegerToRad(double factor) { motorSensorFactorIntegerToRad_ = factor; }
+
   void setDemandedJointPositionRAW(int32_t demandedJointPosition);
 
   void setDemandedJointVelocityRAW(int32_t demandedJointVelocity);
@@ -185,6 +192,7 @@ class Reading {
   int32_t actualJointVelocity_{0};
   int32_t estJointTorque_{0};
   int32_t actualJointCurrent_{0};
+  int32_t motorSensorPosition_{0};
 
   int32_t demandedJointPosition_{0};
   int32_t demandedJointVelocity_{0};
@@ -198,6 +206,7 @@ class Reading {
 
 
   double positionFactorIntegerToRad_{1};
+  double motorSensorFactorIntegerToRad_{std::numeric_limits<double>::quiet_NaN()};
   double velocityFactorConfiguredUnitToRadPerSec_ = 2.0 * M_PI / (60.0); //default reading: rpm
   double currentFactorIntegerToAmp_{1};
   double torqueFactorIntegerToNm_{1};
