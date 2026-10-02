@@ -164,6 +164,10 @@ double Reading::getDemandedJointCurrent() const {
   return static_cast<double>(demandedJointCurent_) * 0.001;
 }
 
+double Reading::getDemandedJointTorque() const {
+  return getDemandedJointCurrent() * demandedTorquePerAmp_;
+}
+
 double Reading::getMotorTemperature() const {
   return static_cast<double>(motorTemperature_) * 0.1;
 }

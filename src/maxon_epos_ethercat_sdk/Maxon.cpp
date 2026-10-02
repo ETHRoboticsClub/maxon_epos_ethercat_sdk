@@ -826,19 +826,34 @@ bool Maxon::readSIUnitSDO() {
 
 bool Maxon::readMotorSensorSDO() {
   uint32_t sensors = 0, pulses = 0, gearNumerator = 0, gearDenominator = 0;
+  const bool gearRead = sendSdoRead(OD_INDEX_GEAR_DATA, 0x01, false, gearNumerator) &&
+                        sendSdoRead(OD_INDEX_GEAR_DATA, 0x02, false, gearDenominator) &&
+                        gearNumerator > 0 && gearDenominator > 0;
   bool read = sendSdoRead(OD_INDEX_AXIS_CONFIGURATION, 0x01, false, sensors);
   read &= sendSdoRead(OD_INDEX_DIGITAL_INCREMENTAL_ENCODER_1, 0x01, false, pulses);
-  read &= sendSdoRead(OD_INDEX_GEAR_DATA, 0x01, false, gearNumerator);
-  read &= sendSdoRead(OD_INDEX_GEAR_DATA, 0x02, false, gearDenominator);
+  read &= gearRead;
   const bool usable = read && (sensors & 0xFF) == OD_VALUE_SENSOR_1_DIGITAL_INCREMENTAL &&
-                      pulses > 0 && gearNumerator > 0 && gearDenominator > 0;
+                      pulses > 0;
   // Quadrature: four increments per encoder pulse; the gear divides motor turns.
   const double factor = usable ? 2.0 * M_PI * gearDenominator /
                                      (4.0 * pulses * static_cast<double>(gearNumerator))
                                : std::numeric_limits<double>::quiet_NaN();
+  // Joint-side torque the current loop is set to deliver: no gear losses, so it
+  // overstates the output (by ~15 % on an HEJ50 crank against 0x3672).
+  const double torquePerAmp =
+      gearRead && configuration_.torqueConstantNmA > 0
+          ? configuration_.torqueConstantNmA * gearNumerator / static_cast<double>(gearDenominator)
+          : std::numeric_limits<double>::quiet_NaN();
   {
     std::lock_guard<std::recursive_mutex> lock(readingMutex_);
     reading_.setMotorSensorFactorIntegerToRad(factor);
+    reading_.setDemandedTorquePerAmp(torquePerAmp);
+  }
+  if (!std::isfinite(torquePerAmp)) {
+    MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::readMotorSensorSDO] '" << name_
+        << "': expected the gear (0x3003) readable and a positive torque_constant, got gear "
+        << gearNumerator << "/" << gearDenominator << " torque_constant "
+        << configuration_.torqueConstantNmA << ", fallback=demanded torque reports NaN.");
   }
   if (usable) {
     MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::readMotorSensorSDO] '" << name_

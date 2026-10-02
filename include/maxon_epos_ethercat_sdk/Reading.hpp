@@ -102,6 +102,9 @@ class Reading {
   // Motor encoder position through the gear, joint-side rad, zero at drive
   // power-up (incremental). NaN when the drive's encoder setup was unusable.
   double getMotorSidePosition() const;
+  // Joint-side torque the current loop is set to deliver: current demand
+  // (0x30D0) x torque constant x gear. NaN when the gear could not be read.
+  double getDemandedJointTorque() const;
   double getPsuTemperature() const;
 
   double getI2tMotor() const;
@@ -159,6 +162,7 @@ class Reading {
 
   void setMotorSensorPositionRAW(int32_t motorSensorPosition) { motorSensorPosition_ = motorSensorPosition; }
   void setMotorSensorFactorIntegerToRad(double factor) { motorSensorFactorIntegerToRad_ = factor; }
+  void setDemandedTorquePerAmp(double nmPerAmp) { demandedTorquePerAmp_ = nmPerAmp; }
 
   void setDemandedJointPositionRAW(int32_t demandedJointPosition);
 
@@ -207,6 +211,7 @@ class Reading {
 
   double positionFactorIntegerToRad_{1};
   double motorSensorFactorIntegerToRad_{std::numeric_limits<double>::quiet_NaN()};
+  double demandedTorquePerAmp_{std::numeric_limits<double>::quiet_NaN()};
   double velocityFactorConfiguredUnitToRadPerSec_ = 2.0 * M_PI / (60.0); //default reading: rpm
   double currentFactorIntegerToAmp_{1};
   double torqueFactorIntegerToNm_{1};
