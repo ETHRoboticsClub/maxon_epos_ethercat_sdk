@@ -121,6 +121,7 @@ bool Maxon::startup() {
   success &= mapPdos(rxPdoTypeEnum_, txPdoTypeEnum_);
   // Telemetry only: a drive without a readable motor encoder reports NaN there.
   readMotorSensorSDO();
+  logSpeedLimitsSDO();
 
   // Set Interpolation Time Period (0x60C2). The drive's internal interpolator
   // bridges between cyclic setpoints over this window — it MUST equal the
@@ -441,20 +442,20 @@ void Maxon::updateRead() {
       reading_.setActualJointVelocityRAW(txPdo.actualJointVelocity_);
       reading_.setActualJointCurrentRAW(txPdo.actualJointCurrent_);
       reading_.setEstJointTorqueRAW(txPdo.estJointTorque_);
-      // Motor temperature is on the cyclic PDO (7 objects total). Order MUST
+      // Motor temperature is on the cyclic PDO (9 objects total). Order MUST
       // match the TxPdoJVPT struct + the mapping array in
       // ConfigureParameters.cpp. Power-stage (psu) temperature was dropped from
       // the cyclic PDO (read via SDO if needed).
       reading_.setMotorTemperatureRAW(txPdo.temeperature_motor);
       reading_.setMotorSensorPositionRAW(txPdo.motorSensorPosition_);
+      reading_.setDemandedJointPositionRAW(txPdo.positionDemand_);
+      reading_.setDemandedJointCurrentRAW(txPdo.currentDemand_);
       // reading_.setPsuTemperatureRAW(txPdo.temeperature_psu);  // psu temp off cyclic PDO
       // These diagnostics remain off the cyclic PDO (read via SDO if needed).
       // Their Reading getters return defaults (0) until read via SDO.
-      // reading_.setDemandedJointCurrentRAW(txPdo.currentDemand);
       // reading_.setDemandedJointVelocityRAW(txPdo.velocityDemand);
       // reading_.setI2tMotorRAW(txPdo.i2tmotor);
       // reading_.setI2tPSURAW(txPdo.i2tpsu);
-      // reading_.setPositionDemand(txPdo.positionDemand);
 
       }
 
@@ -851,6 +852,31 @@ bool Maxon::readMotorSensorSDO() {
         << gearDenominator << ", fallback=motor-side position reports NaN.");
   }
   return usable;
+}
+
+bool Maxon::logSpeedLimitsSDO() {
+  uint32_t profile = 0, motor = 0, gearInput = 0, system = 0, gearNumerator = 0, gearDenominator = 0;
+  bool read = sendSdoRead(OD_INDEX_MAX_PROFILE_VELOCITY, 0x00, false, profile);
+  read &= sendSdoRead(OD_INDEX_MAX_MOTOR_SPEED, 0x00, false, motor);
+  read &= sendSdoRead(OD_INDEX_GEAR_DATA, 0x03, false, gearInput);
+  read &= sendSdoRead(OD_INDEX_MAX_SYSTEM_SPEED, 0x06, false, system);
+  read &= sendSdoRead(OD_INDEX_GEAR_DATA, 0x01, false, gearNumerator);
+  read &= sendSdoRead(OD_INDEX_GEAR_DATA, 0x02, false, gearDenominator);
+  if (!read || gearNumerator == 0) {
+    MELO_WARN_STREAM("[maxon_epos_ethercat_sdk:Maxon::logSpeedLimitsSDO] '" << name_
+        << "': expected 0x607F, 0x6080, 0x3000:06 and 0x3003:01-03 readable, got a failed read; "
+        "fallback=speed limits unreported.");
+    return false;
+  }
+  // Motor and gear-input limits are motor-side rpm; the gear divides them at the joint.
+  const double jointRadS = std::min(motor, gearInput) * 2.0 * M_PI / 60.0 * gearDenominator /
+                           static_cast<double>(gearNumerator);
+  MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::logSpeedLimitsSDO] '" << name_
+      << "' max profile velocity (0x607F) " << profile << " velocity units, max motor speed (0x6080) "
+      << motor << " rpm, max gear input speed (0x3003:03) " << gearInput
+      << " rpm, max system speed (0x3000:06) " << system << " rpm: joint-side bound "
+      << jointRadS << " rad/s");
+  return true;
 }
 
 bool Maxon::readAccelerationLimitsSDO(){

@@ -427,13 +427,12 @@ bool Maxon::mapPdos(RxPdoTypeEnum rxPdoTypeEnum, TxPdoTypeEnum txPdoTypeEnum) {
       MELO_INFO_STREAM("[maxon_epos_ethercat_sdk:Maxon::mapPdos] Tx Pdo: "
                        << "Cyclic Joint Velocity Position Torque Mode");
 
-      // TxPDO is 7 mapped objects: the 5 core feedbacks, motor temperature
-      // (0x3201/0x02) and the motor encoder position (0x60E4:01). Power-stage (psu) temperature was dropped from the cyclic
-      // PDO to leave headroom under the "<=8 PDOs per direction" bound. Array
-      // SIZE and order MUST match TxPdoJVPT (TxPdo.hpp) and the parse in
-      // Maxon.cpp::updateRead. NB: array<7> => exactly 7 entries written and the
-      // object count set to 7.
-      std::array<uint32_t, 7> objects{
+      // TxPDO is 9 mapped objects (a mapping holds up to 12): the 5 core
+      // feedbacks, motor temperature (0x3201/0x02), the motor encoder position
+      // (0x60E4:01), the position demand (0x6062) and the current demand
+      // (0x30D0). Array SIZE and order MUST match TxPdoJVPT (TxPdo.hpp) and the
+      // parse in Maxon.cpp::updateRead.
+      std::array<uint32_t, 9> objects{
           (OD_INDEX_STATUSWORD << 16) | (0x00 << 8) | sizeof(uint16_t) * 8,
           (OD_INDEX_JOINT_TORQUE_EST << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
           (OD_INDEX_JOINT_VELOCITY_ACTUAL << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
@@ -442,10 +441,10 @@ bool Maxon::mapPdos(RxPdoTypeEnum rxPdoTypeEnum, TxPdoTypeEnum txPdoTypeEnum) {
           (OD_INDEX_TEMPERATURE << 16) | (0x02 << 8) | sizeof(int16_t) * 8,  // motor temp
           (OD_INDEX_ADDITIONAL_POSITION_ACTUAL << 16) | (OD_SUBINDEX_MOTOR_SENSOR_POSITION << 8) |
               sizeof(int32_t) * 8,
+          (OD_INDEX_POSITION_DEMAND << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
+          (OD_INDEX_CURRENT_DEMAND << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
           // (OD_INDEX_TEMPERATURE << 16) | (0x01 << 8) | sizeof(int16_t) * 8,  // power-stage temp (dropped from cyclic PDO)
           // (OD_INDEX_VELOCITY_DEMAND << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
-          // (OD_INDEX_CURRENT_DEMAND << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
-          // (OD_INDEX_POSITION_DEMAND << 16) | (0x00 << 8) | sizeof(int32_t) * 8,
           // (OD_INDEX_I2T << 16) | (0x01 << 8) | sizeof(uint16_t) * 8,
           // (OD_INDEX_I2T << 16) | (0x02 << 8) | sizeof(uint16_t) * 8,
       };
