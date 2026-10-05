@@ -1947,6 +1947,13 @@ uint16_t Maxon::getTxPdoSize() { return pdoInfo_.txPdoSize_; }
 
 uint16_t Maxon::getRxPdoSize() { return pdoInfo_.rxPdoSize_; }
 
+void Maxon::stageDisableVoltageViaPdo() {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  conductStateChange_ = false;
+  stateChangeSuccessful_ = false;
+  controlword_.setStateTransition9();
+}
+
 void Maxon::engagePdoStateMachine() {
   // locking the mutex
   std::lock_guard<std::recursive_mutex> lock(mutex_);

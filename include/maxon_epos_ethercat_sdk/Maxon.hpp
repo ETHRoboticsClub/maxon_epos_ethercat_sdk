@@ -236,6 +236,12 @@ class Maxon : public ecat_master::EthercatDevice {
   bool setDriveStateViaPdo(const DriveState& driveState,
                            const bool waitForState);
   bool lastPdoStateChangeSuccessful() const { return stateChangeSuccessful_; }
+  // CiA-402 "Disable voltage" (0x6040 = 0x0000) in every RxPDO from the next
+  // write, without waiting for a reading: setDriveStateViaPdo() steps only on
+  // fresh statuswords, which stop while the working counter is low. Lands in
+  // SwitchOnDisabled from every state but Fault. Confirm from a statusword read
+  // (e.g. requestSdo in OP); a later setDriveStateViaPdo() takes over again.
+  void stageDisableVoltageViaPdo();
 
  protected:
   void engagePdoStateMachine();
