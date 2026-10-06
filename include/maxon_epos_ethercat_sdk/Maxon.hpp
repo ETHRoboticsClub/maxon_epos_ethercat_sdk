@@ -70,9 +70,10 @@ class Maxon : public ecat_master::EthercatDevice {
  public:
   bool preflightStartup() override;
   bool startup() override;
-  // Why preflightStartup refused this drive (invalid configuration or serial
-  // identity); empty when it did not.
-  const std::string& startupFault() const { return startupFault_; }
+  const std::string& startupSerialFault() const { return startupSerialFault_; }
+  // The checks the loaded configuration fails (Configuration::configurationFaults);
+  // empty when it is valid. The drive still starts; the master refuses Arm.
+  const std::string& configurationFault() const { return configurationFault_; }
   uint32_t startupSerialObserved() const { return startupSerialObserved_; }
   // SDO disable-voltage with statusword confirmation. SAFE-OP only: refused
   // (and reported) while the bus is in OP. De-energize over PDO while the
@@ -296,7 +297,7 @@ class Maxon : public ecat_master::EthercatDevice {
   Configuration configuration_;
 
  protected:
-  std::string startupFault_;
+  std::string startupSerialFault_;
   std::string configurationFault_;
   uint32_t startupSerialObserved_{0};
   Command stagedCommand_;

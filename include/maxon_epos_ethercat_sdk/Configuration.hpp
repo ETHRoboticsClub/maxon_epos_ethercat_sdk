@@ -112,7 +112,7 @@ class Configuration {
                                   const Configuration& configuration);
 
   // The checks this configuration fails, as operator-readable text; empty when
-  // it is usable. Maxon::preflightStartup refuses a drive with any.
+  // it is usable.
   std::vector<std::string> configurationFaults() const;
 
   std::pair<RxPdoTypeEnum, TxPdoTypeEnum> getPdoTypeSolution() const;

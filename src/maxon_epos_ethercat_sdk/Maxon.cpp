@@ -79,12 +79,10 @@ Maxon::Maxon(const std::string& name, const uint32_t address) {
 }
 
 bool Maxon::preflightStartup() {
-  startupFault_.clear();
+  startupSerialFault_.clear();
   startupSerialObserved_ = 0;
-  if (!configurationFault_.empty()) {
-    startupFault_ = configurationFault_;
-  } else if (!bus_->waitForState(soem_interface_rsl::ETHERCAT_SM_STATE::PRE_OP, address_)) {
-    startupFault_ = name_ + " slot " + std::to_string(address_) + ": PRE_OP unavailable for serial read";
+  if (!bus_->waitForState(soem_interface_rsl::ETHERCAT_SM_STATE::PRE_OP, address_)) {
+    startupSerialFault_ = name_ + " slot " + std::to_string(address_) + ": PRE_OP unavailable for serial read";
   } else {
     uint32_t observed = 0;
     if (readDeviceSerialNumber(observed) && observed != 0) startupSerialObserved_ = observed;
@@ -98,10 +96,10 @@ bool Maxon::preflightStartup() {
       fault << name_ << " slot " << address_ << ": installed serial " << startupSerialObserved_
             << " differs from expected " << *configuration_.expectedSerial;
     }
-    startupFault_ = fault.str();
+    startupSerialFault_ = fault.str();
   }
-  if (startupFault_.empty()) return true;
-  MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::preflightStartup] " << startupFault_);
+  if (startupSerialFault_.empty()) return true;
+  MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::preflightStartup] " << startupSerialFault_);
   addErrorToReading(ErrorType::ConfigurationError);
   return false;
 }
@@ -611,7 +609,8 @@ bool Maxon::loadConfiguration(const Configuration& configuration) {
   fault << name_ << ": configuration invalid:";
   for (const auto& text : faults) fault << ' ' << text << ';';
   configurationFault_ = fault.str();
-  MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::loadConfiguration] " << configurationFault_);
+  MELO_ERROR_STREAM("[maxon_epos_ethercat_sdk:Maxon::loadConfiguration] " << configurationFault_
+                     << "; the master refuses Arm");
   return false;
 }
 
