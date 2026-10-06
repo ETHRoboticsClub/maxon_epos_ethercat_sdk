@@ -33,6 +33,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <iostream>
 #include <optional>
 #include <utility>
@@ -110,14 +111,9 @@ class Configuration {
   friend std::ostream& operator<<(std::ostream& os,
                                   const Configuration& configuration);
 
-  /*!
-   * @brief Check whether the parameters are sane.
-   * Prints a list of the checks and whether they failed or passed.
-   * @param[in] silent If true: Do not print. Only return the success of the
-   * test.
-   * @return true if the checks are successful.
-   */
-  bool sanityCheck(bool silent = false) const;
+  // The checks this configuration fails, as operator-readable text; empty when
+  // it is usable. Maxon::preflightStartup refuses a drive with any.
+  std::vector<std::string> configurationFaults() const;
 
   std::pair<RxPdoTypeEnum, TxPdoTypeEnum> getPdoTypeSolution() const;
 };

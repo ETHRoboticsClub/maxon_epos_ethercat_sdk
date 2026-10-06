@@ -180,77 +180,26 @@ std::pair<RxPdoTypeEnum, TxPdoTypeEnum> Configuration::getPdoTypeSolution()
                     modeOfOperation) != modesOfOperation.end();
     if (setsAreEqual) return modes2PdoTypeEntry.second;
   }
-  printf("No valid combination of modes of operation found");
   return std::pair<RxPdoTypeEnum, TxPdoTypeEnum>{RxPdoTypeEnum::NA,
                                                  TxPdoTypeEnum::NA};
 }
 
-bool Configuration::sanityCheck(bool silent) const {
-  bool success = true;
-  std::string message = "";
-
-  auto check_and_inform = [&message,
-                           &success](std::pair<bool, std::string> test) {
-    if (test.first) {
-      message += "\033[32m✓\t";
-      message += test.second;
-      message += "\033[m\n";
-      success &= true;
-    } else {
-      message += "\033[31m✕\t";
-      message += test.second;
-      message += "\033[m\n";
-      success = false;
-    }
-  };
-  auto pdoTypePair = getPdoTypeSolution();
-  // clang-format off
-  const std::vector<std::pair<bool, std::string>> sanity_tests = {
-
-      {
-        (pdoTypePair.first != RxPdoTypeEnum::NA && pdoTypePair.second != TxPdoTypeEnum::NA),
-        "modes of operation combination allowed, modes of operation: " + std::to_string(modesOfOperation.size()) + " modes of operation, Rx PDO type: " + rxPdoString(pdoTypePair.first) + ", Tx PDO type: " + txPdoString(pdoTypePair.second)
-      },
-      {
-        (driveStateChangeMinTimeout <= driveStateChangeMaxTimeout),
-        "drive_state_change_min_timeout ≤ drive_state_change_max_timeout"
-      },
-      {
-        (softMaxPosLimitSI == 0 && softMinPosLimitSI == 0),
-        "soft position limits are not used"
-      },
-      {
-        // Both are DIVISORS: Maxon.cpp derives torqueFactorNmToInteger =
-        // 1000 / (nominalCurrentA * torqueConstantNmA). At the old {0} defaults
-        // that was inf, and Command::doUnitConversion's
-        // static_cast<int16_t>(inf * 0.0) is undefined behaviour on every
-        // stageCommand.
-        //
-        // NOTE this is a DIAGNOSTIC PRINT, not a gate. sanityCheck's result
-        // reaches loadConfiguration -> loadConfigFile, and Maxon::deviceFromFile
-        // discards it, so a failing test colours one line red and startup
-        // continues. Do not read any entry in this list as "the config is
-        // refused". Making it fatal is a live follow-up; see docs/report/66.
-        (nominalCurrentA > 0.0 && torqueConstantNmA > 0.0),
-        "nominal_current and torque_constant are set (> 0); they scale all "
-        "reported current/torque and a zero silently reports 0 Nm on every drive"
-      },
-      {
-        // Written raw to 0x34C6:03 as UNSIGNED32 by the DAMPING e-stop. A
-        // negative value would wrap to a huge gain (violent damping); cap the
-        // upper bound generously (100x a typical D=10000) to catch garbage.
-        (jvptDampingDGain >= 0.0 && jvptDampingDGain <= 1.0e6),
-        "JVPT_damping_D_gain in [0, 1e6]"
-      }
-  };
-  // clang-format on
-
-  std::for_each(sanity_tests.begin(), sanity_tests.end(), check_and_inform);
-
-  if (!silent) {
-    std::cout << message << std::endl;
-  }
-
-  return success;
+std::vector<std::string> Configuration::configurationFaults() const {
+  std::vector<std::string> faults;
+  const auto pdoTypePair = getPdoTypeSolution();
+  if (pdoTypePair.first == RxPdoTypeEnum::NA || pdoTypePair.second == TxPdoTypeEnum::NA)
+    faults.push_back("modes_of_operation (" + std::to_string(modesOfOperation.size()) +
+                     " configured) map onto no supported PDO pair");
+  if (driveStateChangeMinTimeout > driveStateChangeMaxTimeout)
+    faults.push_back("drive_state_change_min_timeout exceeds drive_state_change_max_timeout");
+  // Divisors of the torque/current scaling (Maxon::loadConfiguration): zero
+  // makes every command's unit conversion undefined.
+  if (!(nominalCurrentA > 0.0 && torqueConstantNmA > 0.0))
+    faults.push_back("nominal_current and torque_constant must both be > 0");
+  // Written raw to 0x34C6:03 as UNSIGNED32 by the DAMPING e-stop: a negative
+  // value wraps to a huge gain. The cap is 100x a typical D of 1e4.
+  if (!(jvptDampingDGain >= 0.0 && jvptDampingDGain <= 1.0e6))
+    faults.push_back("JVPT_damping_D_gain must be in [0, 1e6]");
+  return faults;
 }
 }  // namespace maxon
