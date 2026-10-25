@@ -84,6 +84,13 @@ double Reading::getAgeOfLastReadingInMicroseconds() const {
       ReadingClock::now() - lastReadingTimePoint_).count();
 }
 
+NativeJvptSample Reading::getNativeJvptSample() const {
+  return NativeJvptSample(statusword_, actualJointPosition_, actualJointVelocity_,
+                          estJointTorque_, actualJointCurrent_, motorTemperature_,
+                          motorSensorPosition_, demandedJointPosition_, demandedJointCurent_,
+                          lastReadingTimePoint_);
+}
+
 /*!
  * Raw get methods
  */

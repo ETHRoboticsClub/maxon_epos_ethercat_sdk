@@ -63,6 +63,48 @@ using FaultPair = std::pair<uint16_t, ReadingTimePoint>;
 using ErrorTimePairDeque = std::deque<std::pair<ErrorType, double>>;
 using FaultTimePairDeque = std::deque<std::pair<uint16_t, double>>;
 
+// One coherent copy of the fields mapped by TxPdoJVPT. Maxon::getReading()
+// copies the owning Reading while holding the device reading lock; this value
+// then preserves that exchange without exposing mutable Reading state.
+class NativeJvptSample final {
+ public:
+  NativeJvptSample(uint16_t statusword, int32_t actualJointPositionCounts,
+                   int32_t actualJointVelocityMilliRpm, int32_t estimatedJointTorqueMilliNm,
+                   int32_t actualJointCurrentMilliA, int16_t motorTemperatureDeciC,
+                   int32_t motorPositionCounts, int32_t positionDemandCounts,
+                   int32_t currentDemandMilliA, ReadingTimePoint receivedAt)
+      : statusword_(statusword), actualJointPositionCounts_(actualJointPositionCounts),
+        actualJointVelocityMilliRpm_(actualJointVelocityMilliRpm),
+        estimatedJointTorqueMilliNm_(estimatedJointTorqueMilliNm),
+        actualJointCurrentMilliA_(actualJointCurrentMilliA),
+        motorTemperatureDeciC_(motorTemperatureDeciC), motorPositionCounts_(motorPositionCounts),
+        positionDemandCounts_(positionDemandCounts), currentDemandMilliA_(currentDemandMilliA),
+        receivedAt_(receivedAt) {}
+
+  uint16_t statusword() const { return statusword_; }
+  int32_t actualJointPositionCounts() const { return actualJointPositionCounts_; }
+  int32_t actualJointVelocityMilliRpm() const { return actualJointVelocityMilliRpm_; }
+  int32_t estimatedJointTorqueMilliNm() const { return estimatedJointTorqueMilliNm_; }
+  int32_t actualJointCurrentMilliA() const { return actualJointCurrentMilliA_; }
+  int16_t motorTemperatureDeciC() const { return motorTemperatureDeciC_; }
+  int32_t motorPositionCounts() const { return motorPositionCounts_; }
+  int32_t positionDemandCounts() const { return positionDemandCounts_; }
+  int32_t currentDemandMilliA() const { return currentDemandMilliA_; }
+  ReadingTimePoint receivedAt() const { return receivedAt_; }
+
+ private:
+  uint16_t statusword_;
+  int32_t actualJointPositionCounts_;
+  int32_t actualJointVelocityMilliRpm_;
+  int32_t estimatedJointTorqueMilliNm_;
+  int32_t actualJointCurrentMilliA_;
+  int16_t motorTemperatureDeciC_;
+  int32_t motorPositionCounts_;
+  int32_t positionDemandCounts_;
+  int32_t currentDemandMilliA_;
+  ReadingTimePoint receivedAt_;
+};
+
 class Reading {
  public:
   /*!
@@ -142,6 +184,7 @@ class Reading {
   void setTimePointNow();
 
   ReadingTimePoint getLastReadingTimePoint() const { return lastReadingTimePoint_; }
+  NativeJvptSample getNativeJvptSample() const;
 
   void setPositionFactorIntegerToRad(double positionFactor);
 
