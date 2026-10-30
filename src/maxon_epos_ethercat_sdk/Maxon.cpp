@@ -689,38 +689,78 @@ bool Maxon::readJLVPTControllerGainSDO(){
   return success;
 }
 
-bool Maxon::logControllerGainsSDO() {
-  // One-line, per-drive read-back of the gains actually stored in the drive,
-  // so the live tuning of every joint is visible at boot. Reminder: the SDK
-  // only WRITES current (0x30A0) and JVPT (0x34C6); the velocity loop (0x30A2)
-  // is never written by this stack, so its values here come straight from the
-  // drive's NVM. Read straight from the OD via SDO (post-configuration).
-  uint32_t cur_p = 0, cur_i = 0;
-  uint32_t vel_p = 0, vel_i = 0;
-  uint32_t jvpt_p = 0, jvpt_i = 0, jvpt_d = 0, jvpt_imax = 0;
-  bool success = true;
-  success &= sendSdoRead(OD_INDEX_CURRENT_CONTROL_PARAM, 0x01, false, cur_p);
-  success &= sendSdoRead(OD_INDEX_CURRENT_CONTROL_PARAM, 0x02, false, cur_i);
-  success &= sendSdoRead(OD_INDEX_VELOCITY_CONTROL_PARAM, 0x01, false, vel_p);
-  success &= sendSdoRead(OD_INDEX_VELOCITY_CONTROL_PARAM, 0x02, false, vel_i);
-  success &= sendSdoRead(OD_INDEX_JVPT_PARAMETERS, 0x01, false, jvpt_p);
-  success &= sendSdoRead(OD_INDEX_JVPT_PARAMETERS, 0x02, false, jvpt_i);
-  success &= sendSdoRead(OD_INDEX_JVPT_PARAMETERS, 0x03, false, jvpt_d);
-  success &= sendSdoRead(OD_INDEX_JVPT_PARAMETERS, 0x04, false, jvpt_imax);
+bool Maxon::readControllerReadbackSDO() {
+  // The velocity loop and observer are never written by this stack: what is read here
+  // is what the drive's NVM holds. SOEM reports an abort and a missing reply alike, so a
+  // failed read is followed by a read of the identity serial (0x1018:04): a drive that
+  // leaves that unanswered too is not replying, and the remaining objects are skipped
+  // rather than each waiting out the mailbox timeout.
+  bool replying = true;
+  const auto read = [this, &replying](uint16_t index, uint8_t sub) -> std::optional<uint32_t> {
+    if (!replying || startupCancelled_())
+      return std::nullopt;
+    uint32_t value = 0;
+    if (sendSdoRead(index, sub, false, value))
+      return value;
+    uint32_t serial = 0;
+    replying = !startupCancelled_() && sendSdoRead(OD_IDENTITY_OBJECT, 0x04, false, serial);
+    if (!replying)
+      MELO_WARN_STREAM("[ControllerReadback] '" << name_ << "' stopped replying at 0x" << std::hex
+                       << index << ":" << static_cast<int>(sub) << std::dec
+                       << "; the remaining objects are unread");
+    return std::nullopt;
+  };
+  ControllerReadback r;
+  r.controlStructure = read(OD_INDEX_AXIS_CONFIGURATION, 0x02);
+  r.nominalCurrentMilliamperes = read(OD_INDEX_MOTOR_DATA, 0x01);
+  r.outputCurrentLimitMilliamperes = read(OD_INDEX_MOTOR_DATA, 0x02);
+  r.torqueConstantMicronewtonMetresPerAmpere = read(OD_INDEX_MOTOR_DATA, 0x05);
+  r.currentPGain = read(OD_INDEX_CURRENT_CONTROL_PARAM, 0x01);
+  r.currentIGain = read(OD_INDEX_CURRENT_CONTROL_PARAM, 0x02);
+  r.velocityPGain = read(OD_INDEX_VELOCITY_CONTROL_PARAM, 0x01);
+  r.velocityIGain = read(OD_INDEX_VELOCITY_CONTROL_PARAM, 0x02);
+  r.velocityFeedforwardVelocityGain = read(OD_INDEX_VELOCITY_CONTROL_PARAM, 0x03);
+  r.velocityFeedforwardAccelerationGain = read(OD_INDEX_VELOCITY_CONTROL_PARAM, 0x04);
+  r.observerPositionCorrectionGain = read(OD_INDEX_VELOCITY_OBSERVER_PARAM, 0x01);
+  r.observerVelocityCorrectionGain = read(OD_INDEX_VELOCITY_OBSERVER_PARAM, 0x02);
+  r.observerLoadCorrectionGain = read(OD_INDEX_VELOCITY_OBSERVER_PARAM, 0x03);
+  r.observerFriction = read(OD_INDEX_VELOCITY_OBSERVER_PARAM, 0x04);
+  r.observerInertia = read(OD_INDEX_VELOCITY_OBSERVER_PARAM, 0x05);
+  const auto jvptP = read(OD_INDEX_JVPT_PARAMETERS, 0x01);
+  const auto jvptI = read(OD_INDEX_JVPT_PARAMETERS, 0x02);
+  const auto jvptD = read(OD_INDEX_JVPT_PARAMETERS, 0x03);
+  const auto jvptImax = read(OD_INDEX_JVPT_PARAMETERS, 0x04);
+  controllerReadback_ = r;
 
+  const auto show = [](const std::optional<uint32_t>& value) {
+    return value ? std::to_string(*value) : std::string("unread");
+  };
   MELO_INFO_STREAM(
-      "[GainDump] '" << name_ << "' read-back from drive:"
-      << "  Current(0x30A0) P=" << cur_p << " I=" << cur_i
-      << " | Velocity(0x30A2) P=" << vel_p << " I=" << vel_i
-      << " | JVPT(0x34C6) P=" << jvpt_p << " I=" << jvpt_i
-      << " D=" << jvpt_d << " Imax=" << jvpt_imax);
-
-  if (!success) {
-    MELO_WARN_STREAM("[GainDump] '" << name_ << "': one or more gain SDO reads "
-        "failed; values above may be stale/zero. Verify the OD addresses "
-        "(current 0x30A0, velocity 0x30A2, JVPT 0x34C6) against the firmware spec.");
-  }
-  return success;
+      "[ControllerReadback] '" << name_ << "':"
+      << " structure(0x3000:02)=" << show(r.controlStructure)
+      << " | motor(0x3001) nominal=" << show(r.nominalCurrentMilliamperes)
+      << " limit=" << show(r.outputCurrentLimitMilliamperes)
+      << " kt=" << show(r.torqueConstantMicronewtonMetresPerAmpere)
+      << " | current(0x30A0) P=" << show(r.currentPGain) << " I=" << show(r.currentIGain)
+      << " | velocity(0x30A2) P=" << show(r.velocityPGain) << " I=" << show(r.velocityIGain)
+      << " FFv=" << show(r.velocityFeedforwardVelocityGain)
+      << " FFa=" << show(r.velocityFeedforwardAccelerationGain)
+      << " | observer(0x30A3) " << show(r.observerPositionCorrectionGain) << "/"
+      << show(r.observerVelocityCorrectionGain) << "/" << show(r.observerLoadCorrectionGain)
+      << "/" << show(r.observerFriction) << "/" << show(r.observerInertia)
+      << " | JVPT(0x34C6) P=" << show(jvptP) << " I=" << show(jvptI) << " D=" << show(jvptD)
+      << " Imax=" << show(jvptImax));
+  const bool complete =
+      r.controlStructure && r.nominalCurrentMilliamperes && r.outputCurrentLimitMilliamperes &&
+      r.torqueConstantMicronewtonMetresPerAmpere && r.currentPGain && r.currentIGain &&
+      r.velocityPGain && r.velocityIGain && r.velocityFeedforwardVelocityGain &&
+      r.velocityFeedforwardAccelerationGain && r.observerPositionCorrectionGain &&
+      r.observerVelocityCorrectionGain && r.observerLoadCorrectionGain && r.observerFriction &&
+      r.observerInertia && jvptP && jvptI && jvptD && jvptImax;
+  if (!complete)
+    MELO_WARN_STREAM("[ControllerReadback] '" << name_
+                     << "': one or more controller objects could not be read (shown as unread)");
+  return complete;
 }
 
 bool Maxon::readMotorDataSDO() {

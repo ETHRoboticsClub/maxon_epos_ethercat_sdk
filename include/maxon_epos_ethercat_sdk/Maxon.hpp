@@ -43,8 +43,10 @@
 #include <optional>
 #include <string>
 #include <functional>
+#include <utility>
 
 #include "maxon_epos_ethercat_sdk/Command.hpp"
+#include "maxon_epos_ethercat_sdk/ControllerReadback.hpp"
 #include "maxon_epos_ethercat_sdk/Controlword.hpp"
 #include "maxon_epos_ethercat_sdk/DriveState.hpp"
 #include "maxon_epos_ethercat_sdk/Reading.hpp"
@@ -75,6 +77,12 @@ class Maxon : public ecat_master::EthercatDevice {
   // empty when it is valid. The drive still starts; the master refuses Arm.
   const std::string& configurationFault() const { return configurationFault_; }
   uint32_t startupSerialObserved() const { return startupSerialObserved_; }
+  // What configParam() read back from the drive; written on the startup thread only.
+  const ControllerReadback& controllerReadback() const { return controllerReadback_; }
+  // Polled between startup reads that may wait out a mailbox timeout.
+  void setStartupCancelled(std::function<bool()> cancelled) {
+    startupCancelled_ = std::move(cancelled);
+  }
   // SDO disable-voltage with statusword confirmation. SAFE-OP only: refused
   // (and reported) while the bus is in OP. De-energize over PDO while the
   // cyclic frame runs; use this for the drives that did not confirm.
@@ -125,9 +133,9 @@ class Maxon : public ecat_master::EthercatDevice {
   bool readMaxProfileVelocitySDO();
   bool readVelocityControllerGainSDO();
   bool readJLVPTControllerGainSDO();
-  // Read back and log, in one line per drive, the gains actually stored in the
-  // drive: current (0x30A0), velocity (0x30A2) and JVPT (0x34C6). Diagnostic.
-  bool logControllerGainsSDO();
+  // Reads the controller objects the drive holds (ControllerReadback) and the JVPT
+  // gains (0x34C6), and logs them in one line. A failed read leaves its field empty.
+  bool readControllerReadbackSDO();
   bool readMotorDataSDO();
   double readJointStateSDO();
   bool setJointPositionTargetSDO(double jointpos);
@@ -300,6 +308,8 @@ class Maxon : public ecat_master::EthercatDevice {
   std::string startupSerialFault_;
   std::string configurationFault_;
   uint32_t startupSerialObserved_{0};
+  ControllerReadback controllerReadback_;
+  std::function<bool()> startupCancelled_{[] { return false; }};
   Command stagedCommand_;
   Reading reading_;
   RxPdoTypeEnum rxPdoTypeEnum_{RxPdoTypeEnum::NA};

@@ -666,11 +666,8 @@ bool Maxon::configParam() {
     MELO_ERROR("Setting configuration parameters failed.");
   }
 
-  // Read back and log what the drive actually holds for the current/velocity/
-  // JVPT loops (diagnostic; does not affect configSuccess). Lets the operator
-  // confirm each joint's live tuning — and exposes the velocity loop, which
-  // this stack never writes (drive-NVM only).
-  logControllerGainsSDO();
+  // Read back what the drive holds; a failed read is reported, never a startup failure.
+  readControllerReadbackSDO();
 
   return configSuccess;
 }
